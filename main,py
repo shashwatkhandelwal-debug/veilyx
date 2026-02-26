@@ -1,0 +1,44 @@
+# main.py - This is where everything connects
+# This simulates the full Veilyx flow from start to finish
+
+from mock_digilocker import get_user_data
+from verification_engine import verify_user
+from Proof_generator import generate_proof
+
+# Step 1 - Company requests verification
+print("=== VEILYX VERIFICATION STARTED ===")
+print("Company: QuickLoan Fintech")
+print("Requesting: Age check and name match")
+print("")
+
+# Step 2 - User gives consent
+user_id = "user_001"
+consent = input("User, do you consent to verification? (yes/no): ")
+
+if consent.lower() != "yes":
+    print("Verification cancelled. User did not consent.")
+else:
+    # Step 3 - Pull data from mock DigiLocker
+    user_data = get_user_data(user_id)
+
+    # Step 4 - Run verification checks
+    results = verify_user(
+        user_data,
+        requested_checks=["age_above_18", "name_match", "document_valid"],
+        company_provided_name="Rohan Sharma"
+    )
+
+    # Step 5 - Generate proof
+    proof = generate_proof(
+        company_name="QuickLoan Fintech",
+        user_id=user_id,
+        verification_results=results,
+        consent_given=True
+    )
+
+    # Step 6 - Show what the company receives
+    print("")
+    print("=== PROOF RETURNED TO COMPANY ===")
+    for key, value in proof.items():
+        print(f"{key}: {value}")
+    
