@@ -46,3 +46,16 @@ def verify(request: VerificationRequest):
     )
     
     return proof
+@app.get("/")
+def home():
+    return {
+        "name": "Veilyx API",
+        "version": "0.1.0",
+        "description": "Verification infrastructure that returns proofs, not documents.",
+        "status": "running",
+        "endpoints": {
+            "verify": "/verify",
+            "docs": "/docs"
+        },
+        "philosophy": "Companies should receive verification proofs, not documents."
+    }
