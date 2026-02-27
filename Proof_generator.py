@@ -15,6 +15,6 @@ def generate_proof(company_name, user_id, verification_results, consent_given):
         "raw_data_shared": False,
         "proof_generated_at": datetime.now().isoformat(),
         "proof_valid_until": (datetime.now() + timedelta(hours=24)).isoformat(),
-        "status": "VERIFIED" if all(verification_results.values()) else "FAILED"
+        "status": "VERIFIED" if verification_results and all(verification_results.values()) else "FAILED"
     }
     return proof

@@ -7,12 +7,19 @@ from mock_digilocker import get_user_data
 from verification_engine import verify_user
 from Proof_generator import generate_proof
 from datetime import datetime
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.requests import Request
 
 app = FastAPI()
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 proof_store = {}
 request_log = []
 
-# This defines what a verification request looks like
 class VerificationRequest(BaseModel):
     user_id: str
     company_name: str
@@ -20,36 +27,36 @@ class VerificationRequest(BaseModel):
     company_provided_name: str = None
     consent: bool
 
-# This is the main endpoint companies will call
 @app.post("/verify")
-def verify(request: VerificationRequest):
+@limiter.limit("10/minute")
+def verify(verification_request: VerificationRequest, request: Request):
 
-    if not request.consent:
+    if not verification_request.consent:
         return {"status": "DENIED", "reason": "User did not consent"}
 
-    user_data = get_user_data(request.user_id)
+    user_data = get_user_data(verification_request.user_id)
     if not user_data:
         return {"status": "FAILED", "reason": "User not found"}
 
     results = verify_user(
         user_data,
-        requested_checks=request.requested_checks,
-        company_provided_name=request.company_provided_name
+        requested_checks=verification_request.requested_checks,
+        company_provided_name=verification_request.company_provided_name
     )
 
     proof = generate_proof(
-        company_name=request.company_name,
-        user_id=request.user_id,
+        company_name=verification_request.company_name,
+        user_id=verification_request.user_id,
         verification_results=results,
-        consent_given=request.consent
+        consent_given=verification_request.consent
     )
 
     request_log.append({
         "timestamp": datetime.now().isoformat(),
-        "company": request.company_name,
-        "user_id": request.user_id,
-        "checks_requested": request.requested_checks,
-        "consent_given": request.consent,
+        "company": verification_request.company_name,
+        "user_id": verification_request.user_id,
+        "checks_requested": verification_request.requested_checks,
+        "consent_given": verification_request.consent,
         "result": proof["status"]
     })
 
@@ -113,16 +120,16 @@ def health_check():
 
 @app.get("/audit-log")
 def get_audit_log():
-    return{
-           "total_requests": len(request_log),
-             "log": request_log
-  }
+    return {
+        "total_requests": len(request_log),
+        "log": request_log
+    }
 
 @app.get("/users")
 def get_test_users():
     from mock_digilocker import get_all_users
     return {
-             "available_test_users": get_all_users(),
-             "total": len(get_all_users()),
-             "note": "These are simulated DigiLocker users for testing only"
-           }
+        "available_test_users": get_all_users(),
+        "total": len(get_all_users()),
+        "note": "These are simulated DigiLocker users for testing only"
+    }
