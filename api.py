@@ -113,7 +113,16 @@ def health_check():
 
 @app.get("/audit-log")
 def get_audit_log():
+    return{
+           "total_requests": len(request_log),
+             "log": request_log
+  }
+
+@app.get("/users")
+def get_test_users():
+    from mock_digilocker import get_all_users
     return {
-        "total_requests": len(request_log),
-        "log": request_log
-    }
+             "available_test_users": get_all_users(),
+             "total": len(get_all_users()),
+             "note": "These are simulated DigiLocker users for testing only"
+           }
