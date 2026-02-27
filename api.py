@@ -8,6 +8,7 @@ from verification_engine import verify_user
 from Proof_generator import generate_proof
 
 app = FastAPI()
+proof_store = {}
 
 # This defines what a verification request looks like
 class VerificationRequest(BaseModel):
@@ -45,7 +46,9 @@ def verify(request: VerificationRequest):
         consent_given=request.consent
     )
     
-    return proof
+    proof_store[proof["verification_id"]] = proof
+    return proof 
+
 @app.get("/")
 def home():
     return {
@@ -58,4 +61,38 @@ def home():
             "docs": "/docs"
         },
         "philosophy": "Companies should receive verification proofs, not documents."
+    }
+@app.get("/status/{verification_id}")
+def check_status(verification_id: str):
+    
+    if verification_id not in proof_store:
+        return {
+            "verification_id": verification_id,
+            "status": "NOT_FOUND",
+            "message": "No proof found with this ID"
+        }
+    
+    proof = proof_store[verification_id]
+    
+    from datetime import datetime
+    expiry = datetime.fromisoformat(proof["proof_valid_until"])
+    now = datetime.now()
+    
+    if now > expiry:
+        return {
+            "verification_id": verification_id,
+            "status": "EXPIRED",
+            "message": "Proof expired. Request new verification."
+        }
+    
+    remaining = expiry - now
+    hours = int(remaining.total_seconds() // 3600)
+    minutes = int((remaining.total_seconds() % 3600) // 60)
+    
+    return {
+        "verification_id": verification_id,
+        "status": "ACTIVE",
+        "expires_in": f"{hours} hours and {minutes} minutes remaining",
+        "requested_by": proof["requested_by"],
+        "original_status": proof["status"]
     }
