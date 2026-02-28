@@ -9,19 +9,20 @@ const LINKING_ERROR =
 const Veilyx = NativeModules.Veilyx
   ? NativeModules.Veilyx
   : new Proxy(
-      {},
-      {
-        get() {
-          throw new Error(LINKING_ERROR);
-        },
-      }
-    );
+    {},
+    {
+      get() {
+        throw new Error(LINKING_ERROR);
+      },
+    }
+  );
 
 export type VerificationCheck = 'age_above_18' | 'name_match' | 'document_valid';
 
 export interface ProofRequest {
   companyName: string;
   checks: VerificationCheck[];
+  aadhaarXml?: string;
 }
 
 export interface VeilyxProof {
@@ -37,13 +38,13 @@ export interface SignedProof {
   signature: string;
 }
 
-export function initialize(): Promise<{ deviceId: string; publicKeyPem: string; attestationPayload: string }> {
+const initialize = (): Promise<{ deviceId: string; publicKeyPem: string; attestationPayload: string }> => {
   return Veilyx.initialize();
-}
+};
 
-export function requestProof(request: ProofRequest): Promise<SignedProof> {
-  return Veilyx.requestProof(request.companyName, request.checks);
-}
+const requestProof = (request: ProofRequest): Promise<SignedProof> => {
+  return Veilyx.requestProof(request.companyName, request.checks, request.aadhaarXml || "");
+};
 
 export default {
   initialize,

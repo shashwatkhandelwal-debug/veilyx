@@ -73,16 +73,43 @@ const IntegratorDemoApp = () => {
         }
     };
 
-    const simulateBackendVerification = (proof: any) => {
-        // In reality, this is a fetch() to the Integrator's backend, which calls Veilyx Python API
-        setTimeout(() => {
-            setBackendVerification({
-                status: "SUCCESS",
-                message: "Signature Valid. User is 18+",
-                action: "UNLOCK_GAME"
+    const simulateBackendVerification = async (proof: any) => {
+        try {
+            // In reality, this is a fetch() to the Integrator's backend, which calls Veilyx Python API
+            const response = await fetch('http://10.0.2.2:8000/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    proof_payload: proof.proof_payload,
+                    signature: proof.signature
+                })
             });
-            Alert.alert("Matched!", "Proof cryptography verified successfully by backend.");
-        }, 1500);
+
+            if (!response.ok) {
+                throw new Error(`Backend verification failed with status ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.valid) {
+                setBackendVerification({
+                    status: "SUCCESS",
+                    message: data.message,
+                    action: "UNLOCK_GAME"
+                });
+                Alert.alert("Matched!", "Proof cryptography verified successfully by backend.");
+            } else {
+                setBackendVerification({
+                    status: "FAILED",
+                    message: data.message,
+                    action: "LOCK_GAME"
+                });
+                Alert.alert("Verification Failed", data.message);
+            }
+        } catch (e: any) {
+            console.error("Backend Error:", e);
+            Alert.alert("Backend Offline", "Could not connect to verification server. " + e.message);
+        }
     };
 
     return (

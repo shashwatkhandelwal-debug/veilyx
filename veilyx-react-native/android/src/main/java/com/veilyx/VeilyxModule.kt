@@ -8,6 +8,13 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableArray
 
+import com.google.android.play.core.integrity.IntegrityManagerFactory
+import com.google.android.play.core.integrity.IntegrityTokenRequest
+import com.google.android.gms.tasks.Tasks
+import org.xmlpull.v1.XmlPullParserFactory
+import org.xmlpull.v1.XmlPullParser
+import java.io.StringReader
+
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.spec.ECGenParameterSpec
@@ -70,7 +77,18 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
             val map: WritableMap = Arguments.createMap()
             map.putString("deviceId", deviceId)
             map.putString("publicKeyPem", pem)
-            map.putString("attestationPayload", "dummy_android_play_integrity_token")
+            
+            var playIntegrityToken = "dummy_android_play_integrity_token"
+            try {
+                val integrityManager = IntegrityManagerFactory.create(reactApplicationContext)
+                val nonceStr = UUID.randomUUID().toString()
+                val request = IntegrityTokenRequest.builder().setNonce(nonceStr).build()
+                val integrityTokenResponse = Tasks.await(integrityManager.requestIntegrityToken(request))
+                playIntegrityToken = integrityTokenResponse.token()
+            } catch (e: Exception) {
+                playIntegrityToken = "error_fetching_token: " + e.message
+            }
+            map.putString("attestationPayload", playIntegrityToken)
             
             promise.resolve(map)
         } catch (e: Exception) {
@@ -79,13 +97,48 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
     }
 
     @ReactMethod
-    fun requestProof(companyName: String, checks: ReadableArray, promise: Promise) {
+    fun requestProof(companyName: String, checks: ReadableArray, aadhaarXmlData: String, promise: Promise) {
         try {
-            // Simulated local verification logic
+            // Simulated local verification logic with actual Aadhaar XML offline parsing check
             val verifiedAttributes = JSONObject()
             for (i in 0 until checks.size()) {
                 val check = checks.getString(i)
-                verifiedAttributes.put(check, true)
+                if (check == "age_above_18") {
+                    var verified = false
+                    try {
+                        val factory = XmlPullParserFactory.newInstance()
+                        val parser = factory.newPullParser()
+                        parser.setInput(StringReader(aadhaarXmlData))
+                        var eventType = parser.eventType
+                        while (eventType != XmlPullParser.END_DOCUMENT) {
+                            if (eventType == XmlPullParser.START_TAG && parser.name == "Poi") {
+                                val dob = parser.getAttributeValue(null, "dob")
+                                if (dob != null) {
+                                    val formats = arrayOf(SimpleDateFormat("dd-MM-yyyy", Locale.US), SimpleDateFormat("yyyy-MM-dd", Locale.US))
+                                    for (format in formats) {
+                                        try {
+                                            val dobDate = format.parse(dob)
+                                            if (dobDate != null) {
+                                                val cal = java.util.Calendar.getInstance()
+                                                cal.add(java.util.Calendar.YEAR, -18)
+                                                if (dobDate.before(cal.time) || dobDate.equals(cal.time)) {
+                                                    verified = true
+                                                }
+                                            }
+                                            break
+                                        } catch (e: Exception) {}
+                                    }
+                                }
+                            }
+                            eventType = parser.next()
+                        }
+                    } catch (e: Exception) {
+                        // Proceed with verified = false
+                    }
+                    verifiedAttributes.put(check, verified)
+                } else {
+                    verifiedAttributes.put(check, true)
+                }
             }
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS", Locale.US)
@@ -149,7 +202,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
             val attrMap: WritableMap = Arguments.createMap()
             for (i in 0 until checks.size()) {
                 val check = checks.getString(i)
-                attrMap.putBoolean(check, true)
+                attrMap.putBoolean(check, verifiedAttributes.optBoolean(check, false))
             }
             payloadMap.putMap("attributes_verified", attrMap)
             

@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 import base64
@@ -19,24 +19,24 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 device_registry = {}
 
 class DeviceRegistrationRequest(BaseModel):
-    device_id: str
-    public_key_pem: str
-    attestation_payload: str  # Simulated payload from iOS/Android
+    device_id: str = Field(..., min_length=1, description="Unique Device ID")
+    public_key_pem: str = Field(..., min_length=50, description="RSA Public Key in PEM format")
+    attestation_payload: str = Field(..., min_length=10, description="Simulated or real payload from iOS/Android")
 
 class DeviceRegistrationResponse(BaseModel):
     status: str
     message: str
 
 class ProofPayload(BaseModel):
-    verification_id: str
-    device_id: str
-    requested_by: str
+    verification_id: str = Field(..., min_length=5)
+    device_id: str = Field(..., min_length=1)
+    requested_by: str = Field(..., min_length=1)
     attributes_verified: dict
-    timestamp: str
+    timestamp: str = Field(..., min_length=10)
 
 class ProofVerificationRequest(BaseModel):
     proof_payload: ProofPayload
-    signature: str # Base64 encoded signature of the proof_payload
+    signature: str = Field(..., min_length=10, description="Base64 encoded signature")
 
 class ProofVerificationResponse(BaseModel):
     valid: bool
@@ -72,12 +72,22 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
         
         signature_bytes = base64.b64decode(verification_request.signature)
         
-        public_key.verify(
-            signature_bytes,
-            payload_json,
-            padding.PKCS1v15(),
-            hashes.SHA256()
-        )
+        if isinstance(public_key, rsa.RSAPublicKey):
+            public_key.verify(
+                signature_bytes,
+                payload_json,
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+        elif isinstance(public_key, ec.EllipticCurvePublicKey):
+            public_key.verify(
+                signature_bytes,
+                payload_json,
+                ec.ECDSA(hashes.SHA256())
+            )
+        else:
+            raise Exception("Unsupported public key type.")
+        
         return {
             "valid": True,
             "message": "Cryptographic signature verified successfully. The proof is authentic.",
