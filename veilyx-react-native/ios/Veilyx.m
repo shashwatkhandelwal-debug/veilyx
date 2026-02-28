@@ -2,14 +2,18 @@
 
 @interface RCT_EXTERN_MODULE(Veilyx, NSObject)
 
-RCT_EXTERN_METHOD(initialize:(RCTPromiseResolveBlock)resolve
-                  withRejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(
+  initialize:(RCTPromiseResolveBlock)resolve
+  withRejecter:(RCTPromiseRejectBlock)reject
+)
 
-RCT_EXTERN_METHOD(requestProof:(NSString *)companyName
-                  withChecks:(NSArray *)checks
-                  withAadhaar:(NSString *)aadhaarXmlData
-                  withResolver:(RCTPromiseResolveBlock)resolve
-                  withRejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(
+  requestProof:(NSString *)companyName
+  withChecks:(NSArray *)checks
+  withAadhaar:(NSString *)aadhaarXmlData
+  withResolver:(RCTPromiseResolveBlock)resolve
+  withRejecter:(RCTPromiseRejectBlock)reject
+)
 
 + (BOOL)requiresMainQueueSetup
 {
