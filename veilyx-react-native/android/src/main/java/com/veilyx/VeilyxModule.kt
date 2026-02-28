@@ -1,0 +1,165 @@
+package com.veilyx
+
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.Promise
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReadableArray
+
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.spec.ECGenParameterSpec
+import java.util.UUID
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import org.json.JSONObject
+import java.security.Signature
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+
+    private val KEY_ALIAS = "veilyx_identity_key"
+    private var deviceId: String = ""
+
+    override fun getName(): String {
+        return "Veilyx"
+    }
+
+    @ReactMethod
+    fun initialize(promise: Promise) {
+        try {
+            if (deviceId.isEmpty()) {
+                deviceId = UUID.randomUUID().toString()
+            }
+
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+
+            if (!keyStore.containsAlias(KEY_ALIAS)) {
+                val keyPairGenerator = KeyPairGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore"
+                )
+                
+                val parameterSpec = KeyGenParameterSpec.Builder(
+                    KEY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+                )
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                .build()
+
+                keyPairGenerator.initialize(parameterSpec)
+                keyPairGenerator.generateKeyPair()
+            }
+
+            val entry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
+            val publicKey = entry.certificate.publicKey
+            val publicKeyEncoded = Base64.encodeToString(publicKey.encoded, Base64.NO_WRAP)
+            
+            // Format to PEM
+            val pem = "-----BEGIN PUBLIC KEY-----\n" +
+                      publicKeyEncoded.chunked(64).joinToString("\n") +
+                      "\n-----END PUBLIC KEY-----"
+
+            val map: WritableMap = Arguments.createMap()
+            map.putString("deviceId", deviceId)
+            map.putString("publicKeyPem", pem)
+            map.putString("attestationPayload", "dummy_android_play_integrity_token")
+            
+            promise.resolve(map)
+        } catch (e: Exception) {
+            promise.reject("INIT_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun requestProof(companyName: String, checks: ReadableArray, promise: Promise) {
+        try {
+            // Simulated local verification logic
+            val verifiedAttributes = JSONObject()
+            for (i in 0 until checks.size()) {
+                val check = checks.getString(i)
+                verifiedAttributes.put(check, true)
+            }
+
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS", Locale.US)
+            dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+            val timestamp = dateFormat.format(Date())
+
+            val proofPayload = JSONObject()
+            proofPayload.put("verification_id", UUID.randomUUID().toString())
+            proofPayload.put("device_id", deviceId)
+            proofPayload.put("requested_by", companyName)
+            proofPayload.put("attributes_verified", verifiedAttributes)
+            proofPayload.put("timestamp", timestamp)
+
+            // Construct deterministic JSON (keys sorted)
+            val sortedKeys = proofPayload.keys().asSequence().sorted().toList()
+            val deterministicJson = StringBuilder("{")
+            for ((index, key) in sortedKeys.withIndex()) {
+                deterministicJson.append("\"").append(key).append("\":")
+                val value = proofPayload.get(key)
+                if (value is JSONObject) {
+                    val innerKeys = value.keys().asSequence().sorted().toList()
+                    deterministicJson.append("{")
+                    for ((innerIndex, innerKey) in innerKeys.withIndex()) {
+                        deterministicJson.append("\"").append(innerKey).append("\":")
+                         // Boolean handler
+                        if(value.getBoolean(innerKey)) deterministicJson.append("true") else deterministicJson.append("false")
+                        if (innerIndex < innerKeys.size - 1) deterministicJson.append(",")
+                    }
+                    deterministicJson.append("}")
+                } else if (value is String) {
+                    deterministicJson.append("\"").append(value).append("\"")
+                } else {
+                    deterministicJson.append(value)
+                }
+                
+                if (index < sortedKeys.size - 1) deterministicJson.append(",")
+            }
+            deterministicJson.append("}")
+
+            // Sign Payload
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            val entry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
+
+            val signature = Signature.getInstance("SHA256withRSA")
+            signature.initSign(entry.privateKey)
+            signature.update(deterministicJson.toString().toByteArray(Charsets.UTF_8))
+            val signedBytes = signature.sign()
+
+            val signatureBase64 = Base64.encodeToString(signedBytes, Base64.NO_WRAP)
+
+            // WritableMap doesn't support nested objects easily, so return stringified or custom construct
+            val result: WritableMap = Arguments.createMap()
+            
+            val payloadMap: WritableMap = Arguments.createMap()
+            payloadMap.putString("verification_id", proofPayload.getString("verification_id"))
+            payloadMap.putString("device_id", proofPayload.getString("device_id"))
+            payloadMap.putString("requested_by", proofPayload.getString("requested_by"))
+            payloadMap.putString("timestamp", proofPayload.getString("timestamp"))
+            
+            val attrMap: WritableMap = Arguments.createMap()
+            for (i in 0 until checks.size()) {
+                val check = checks.getString(i)
+                attrMap.putBoolean(check, true)
+            }
+            payloadMap.putMap("attributes_verified", attrMap)
+            
+            result.putMap("proof_payload", payloadMap)
+            result.putString("signature", signatureBase64)
+
+            promise.resolve(result)
+            
+        } catch (e: Exception) {
+            promise.reject("VERIFY_ERROR", e.message)
+        }
+    }
+}
