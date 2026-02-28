@@ -40,13 +40,13 @@
     "zkp",
     "cryptography"
   ],
-  "repository": "https://github.com/veilyx/veilyx-react-native",
-  "author": "Veilyx <hi@veilyx.com> (https://veilyx.com)",
+  "repository": "https://github.com/shashwatkhandelwal-debug/veilyx",
+  "author": "Shashwat Khandelwal <khandelwalshashwat0@gmail.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/veilyx/veilyx-react-native/issues"
+    "url": "https://github.com/shashwatkhandelwal-debug/veilyx/issues"
   },
-  "homepage": "https://github.com/veilyx/veilyx-react-native#readme",
+  "homepage": "https://github.com/shashwatkhandelwal-debug/veilyx#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
