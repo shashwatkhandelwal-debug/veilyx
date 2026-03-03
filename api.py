@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -11,6 +11,8 @@ import base64
 import json
 import sqlite3
 import os
+import uuid
+import secrets
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -43,9 +45,37 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS companies (
+                company_id TEXT PRIMARY KEY,
+                company_name TEXT,
+                api_key TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER DEFAULT 1
+            )
+        ''')
         conn.commit()
     finally:
         conn.close()
+
+def get_company_by_api_key(api_key: str):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM companies WHERE api_key = ? AND is_active = 1", (api_key,))
+        columns = [col[0] for col in cursor.description]
+        row = cursor.fetchone()
+        if row:
+            return dict(zip(columns, row))
+        return None
+    finally:
+        conn.close()
+
+def verify_api_key(api_key: str = Header(..., alias='X-API-Key')):
+    company = get_company_by_api_key(api_key)
+    if not company:
+        raise HTTPException(status_code=401, detail="Invalid or inactive API key")
+    return company
 
 init_db()
 
@@ -78,6 +108,32 @@ class ProofVerificationResponse(BaseModel):
     message: str
     payload: dict = None
 
+class CompanyRegistrationRequest(BaseModel):
+    company_name: str = Field(..., min_length=1)
+
+@app.post("/company/register")
+@limiter.limit("3/minute")
+def register_company(request: Request, body: CompanyRegistrationRequest):
+    company_id = str(uuid.uuid4())
+    api_key = secrets.token_urlsafe(32)
+    
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO companies (company_id, company_name, api_key)
+            VALUES (?, ?, ?)
+        ''', (company_id, body.company_name, api_key))
+        conn.commit()
+    finally:
+        conn.close()
+        
+    return {
+        "company_id": company_id,
+        "company_name": body.company_name,
+        "api_key": api_key
+    }
+
 @app.post("/device/register", response_model=DeviceRegistrationResponse)
 @limiter.limit("5/minute")
 def register_device(request: Request, reg_request: DeviceRegistrationRequest):
@@ -100,7 +156,7 @@ def register_device(request: Request, reg_request: DeviceRegistrationRequest):
 
 @app.post("/verify", response_model=ProofVerificationResponse)
 @limiter.limit("20/minute")
-def verify_proof(request: Request, verification_request: ProofVerificationRequest):
+def verify_proof(request: Request, verification_request: ProofVerificationRequest, company: dict = Depends(verify_api_key)):
     device_id = verification_request.proof_payload.device_id
     
     conn = sqlite3.connect(DB_PATH)
@@ -174,7 +230,7 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
 
 @app.get("/stats")
 @limiter.limit("10/minute")
-def get_stats(request: Request):
+def get_stats(request: Request, company: dict = Depends(verify_api_key)):
     conn = sqlite3.connect(DB_PATH)
     try:
         cursor = conn.cursor()
@@ -212,7 +268,7 @@ def get_stats(request: Request):
 
 @app.get("/logs")
 @limiter.limit("10/minute")
-def get_logs(request: Request):
+def get_logs(request: Request, company: dict = Depends(verify_api_key)):
     conn = sqlite3.connect(DB_PATH)
     try:
         cursor = conn.cursor()

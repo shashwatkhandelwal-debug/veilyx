@@ -25,6 +25,10 @@ public_key_pem = public_key.public_bytes(
 device_id = str(uuid.uuid4())
 print(f"[SUCCESS] SDK Initialized for Device: {device_id}")
 
+company_response = client.post("/company/register", json={"company_name": "QuickLoan Fintech"})
+api_key = company_response.json()["api_key"]
+print(f"[SUCCESS] Company registered with API key: {api_key[:8]}...")
+
 # 2. SDK Registers Device over network
 reg_response = client.post("/device/register", json={
     "device_id": device_id,
@@ -62,7 +66,8 @@ request_data = {
 print(f"[INFO] SDK generated signed Proof. Sending to Integrator backend.\n")
 
 # 6. Integrator Backend submits proof to Veilyx Backend
-verify_response = client.post("/verify", json=request_data)
+headers = {"X-API-Key": api_key}
+verify_response = client.post("/verify", json=request_data, headers=headers)
 
 print("=== VEILYX VERIFICATION RESULT ===")
 print(json.dumps(verify_response.json(), indent=2))
@@ -77,5 +82,5 @@ hacked_request_data = {
 }
 
 print("\n--- MALICIOUS ATTEMPT: Altering Payload without resigning ---")
-verify_response_hacked = client.post("/verify", json=hacked_request_data)
+verify_response_hacked = client.post("/verify", json=hacked_request_data, headers=headers)
 print(json.dumps(verify_response_hacked.json(), indent=2))
