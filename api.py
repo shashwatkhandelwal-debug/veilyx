@@ -9,14 +9,49 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 import base64
 import json
+import sqlite3
+import os
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# In-memory database for demo purposes: device_id -> public_key (PEM string)
-device_registry = {}
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'veilyx.db')
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS devices (
+                device_id TEXT PRIMARY KEY,
+                public_key_pem TEXT,
+                attestation_payload TEXT,
+                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS verification_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                verification_id TEXT,
+                device_id TEXT,
+                requested_by TEXT,
+                attributes_verified TEXT,
+                timestamp TEXT,
+                is_valid INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+    finally:
+        conn.close()
+
+init_db()
+
+@app.on_event('startup')
+def startup_event():
+    init_db()
 
 class DeviceRegistrationRequest(BaseModel):
     device_id: str = Field(..., min_length=1, description="Unique Device ID")
@@ -50,7 +85,17 @@ def register_device(request: Request, reg_request: DeviceRegistrationRequest):
     if not reg_request.attestation_payload:
         raise HTTPException(status_code=400, detail="Missing attestation payload")
         
-    device_registry[reg_request.device_id] = reg_request.public_key_pem
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO devices (device_id, public_key_pem, attestation_payload)
+            VALUES (?, ?, ?)
+        ''', (reg_request.device_id, reg_request.public_key_pem, reg_request.attestation_payload))
+        conn.commit()
+    finally:
+        conn.close()
+        
     return {"status": "SUCCESS", "message": f"Device {reg_request.device_id} registered securely."}
 
 @app.post("/verify", response_model=ProofVerificationResponse)
@@ -58,10 +103,16 @@ def register_device(request: Request, reg_request: DeviceRegistrationRequest):
 def verify_proof(request: Request, verification_request: ProofVerificationRequest):
     device_id = verification_request.proof_payload.device_id
     
-    if device_id not in device_registry:
-        raise HTTPException(status_code=404, detail="Device not registered")
-        
-    public_key_pem = device_registry[device_id]
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT public_key_pem FROM devices WHERE device_id = ?', (device_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Device not registered")
+        public_key_pem = row[0]
+    finally:
+        conn.close()
     
     try:
         public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
@@ -88,16 +139,50 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
         else:
             raise Exception("Unsupported public key type.")
         
-        return {
+        is_valid = 1
+        response_data = {
             "valid": True,
             "message": "Cryptographic signature verified successfully. The proof is authentic.",
             "payload": payload_dict
         }
         
     except InvalidSignature:
-        return {"valid": False, "message": "CRITICAL: Signature verification failed. Proof may be tampered with."}
+        is_valid = 0
+        response_data = {"valid": False, "message": "CRITICAL: Signature verification failed. Proof may be tampered with."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO verification_logs (verification_id, device_id, requested_by, attributes_verified, timestamp, is_valid)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            verification_request.proof_payload.verification_id,
+            device_id,
+            verification_request.proof_payload.requested_by,
+            json.dumps(verification_request.proof_payload.attributes_verified),
+            verification_request.proof_payload.timestamp,
+            is_valid
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return response_data
+
+@app.get("/logs")
+@limiter.limit("10/minute")
+def get_logs(request: Request):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM verification_logs ORDER BY created_at DESC LIMIT 50')
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
 
 @app.get("/")
 def home():
