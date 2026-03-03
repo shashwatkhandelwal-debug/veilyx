@@ -7,6 +7,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.ActivityEventListener
 
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.IntegrityTokenRequest
@@ -14,6 +15,8 @@ import com.google.android.gms.tasks.Tasks
 import org.xmlpull.v1.XmlPullParserFactory
 import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -21,6 +24,10 @@ import java.security.spec.ECGenParameterSpec
 import java.util.UUID
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.app.Activity
 import android.util.Base64
 import org.json.JSONObject
 import java.security.Signature
@@ -29,10 +36,26 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext), ActivityEventListener {
 
     private val KEY_ALIAS = "veilyx_identity_key"
     private var deviceId: String = ""
+    private var pendingPickerPromise: Promise? = null
+
+    init {
+        reactContext.addActivityEventListener(this)
+    }
+
+    private fun getOrCreateDeviceId(context: Context): String {
+        val prefs = context.getSharedPreferences("VeilyxPrefs", Context.MODE_PRIVATE)
+        val existingId = prefs.getString("veilyx_device_id", null)
+        if (existingId != null) {
+            return existingId
+        }
+        val newId = UUID.randomUUID().toString()
+        prefs.edit().putString("veilyx_device_id", newId).apply()
+        return newId
+    }
 
     override fun getName(): String {
         return "Veilyx"
@@ -42,7 +65,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
     fun initialize(promise: Promise) {
         try {
             if (deviceId.isEmpty()) {
-                deviceId = UUID.randomUUID().toString()
+                deviceId = getOrCreateDeviceId(reactApplicationContext)
             }
 
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
@@ -213,6 +236,60 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
             
         } catch (e: Exception) {
             promise.reject("VERIFY_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun pickAadhaarFile(promise: Promise) {
+        try {
+            val activity = currentActivity
+            if (activity == null) {
+                promise.reject("ACTIVITY_ERROR", "No current activity found")
+                return
+            }
+            pendingPickerPromise = promise
+            val intent = Intent(Intent.ACTION_GET_CONTENT)
+            intent.type = "*/*"
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/xml", "application/xml"))
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            activity.startActivityForResult(Intent.createChooser(intent, "Select Aadhaar XML File"), 1001)
+        } catch (e: Exception) {
+            pendingPickerPromise = null
+            promise.reject("PICK_ERROR", e.message)
+        }
+    }
+
+    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == 1001) {
+            if (resultCode == Activity.RESULT_OK && data != null && data.data != null) {
+                pendingPickerPromise?.resolve(data.data.toString())
+            } else {
+                pendingPickerPromise?.reject("CANCELLED", "File picker was cancelled")
+            }
+            pendingPickerPromise = null
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        // No-op, required by ActivityEventListener interface
+    }
+
+    @ReactMethod
+    fun readAadhaarFile(fileUri: String, promise: Promise) {
+        try {
+            val uri = Uri.parse(fileUri)
+            val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                promise.reject("READ_ERROR", "Could not open file")
+                return
+            }
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val content = reader.readText()
+            reader.close()
+            inputStream.close()
+            promise.resolve(content)
+        } catch (e: Exception) {
+            promise.reject("READ_ERROR", e.message)
         }
     }
 }
