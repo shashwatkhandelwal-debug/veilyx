@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -287,6 +288,128 @@ def get_logs(request: Request, company: dict = Depends(verify_api_key)):
         cursor.execute('SELECT * FROM verification_logs ORDER BY created_at DESC LIMIT 50')
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+def get_company_by_api_key_query(api_key: str):
+    company = get_company_by_api_key(api_key)
+    if not company:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+    return company
+
+@app.get("/dashboard", response_class=HTMLResponse)
+@limiter.limit("10/minute")
+def get_dashboard(request: Request, api_key: str):
+    company = get_company_by_api_key_query(api_key)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        
+        # Stats
+        cursor.execute('''
+            SELECT 
+                COUNT(*),
+                SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN is_valid = 0 THEN 1 ELSE 0 END)
+            FROM verification_logs
+        ''')
+        row = cursor.fetchone()
+        total = row[0] or 0
+        successful = row[1] or 0
+        failed = row[2] or 0
+        success_rate = round((successful / total * 100), 2) if total > 0 else 0.0
+        
+        # Logs
+        cursor.execute('''
+            SELECT verification_id, device_id, requested_by, attributes_verified, is_valid, created_at 
+            FROM verification_logs 
+            ORDER BY created_at DESC LIMIT 10
+        ''')
+        logs = cursor.fetchall()
+
+        # HTML Template Construction
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta http-equiv="refresh" content="30">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Veilyx Dashboard</title>
+            <style>
+                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a0a0a; color: #ffffff; margin: 0; padding: 20px; }}
+                h1 {{ color: #FF6B00; }}
+                h2 {{ color: #FF6B00; }}
+                .stats-container {{ display: flex; gap: 20px; margin-bottom: 30px; }}
+                .stat-box {{ background-color: #111111; padding: 20px; border-radius: 8px; flex: 1; text-align: center; border: 1px solid #FF6B00; }}
+                .stat-value {{ font-size: 2em; font-weight: bold; margin-top: 10px; color: #FF6B00; }}
+                table {{ width: 100%; border-collapse: collapse; background-color: #111111; border-radius: 8px; overflow: hidden; }}
+                th, td {{ padding: 12px 15px; text-align: left; border-bottom: 1px solid #222; }}
+                th {{ background-color: #1a1a1a; color: #FF6B00; }}
+                tr:hover {{ background-color: #1a1a1a; }}
+                .valid {{ color: #FF6B00; font-weight: bold; }}
+                .invalid {{ color: #f44336; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <h1>Veilyx ⚡ Verification Dashboard</h1>
+            <p style="border-left: 3px solid #FF6B00; padding-left: 10px;">Welcome, <strong>{company['company_name']}</strong></p>
+            
+            <div class="stats-container">
+                <div class="stat-box">
+                    <div>Total Verifications</div>
+                    <div class="stat-value">{total}</div>
+                </div>
+                <div class="stat-box">
+                    <div>Successful</div>
+                    <div class="stat-value">{successful}</div>
+                </div>
+                <div class="stat-box">
+                    <div>Tamper Attempts Blocked</div>
+                    <div class="stat-value" style="color: #f44336;">{failed}</div>
+                </div>
+                <div class="stat-box">
+                    <div>Success Rate</div>
+                    <div class="stat-value">{success_rate}%</div>
+                </div>
+            </div>
+
+            <h2>Recent Verifications</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Verification ID</th>
+                        <th>Device ID</th>
+                        <th>Attributes</th>
+                        <th>Status</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        for log in logs:
+            status_class = "valid" if log[4] == 1 else "invalid"
+            status_text = "VALID" if log[4] == 1 else "TAMPERED"
+            html_content += f"""
+                    <tr>
+                        <td>{log[0][:8]}...</td>
+                        <td>{log[1][:8]}...</td>
+                        <td><code>{log[3]}</code></td>
+                        <td class="{status_class}">{status_text}</td>
+                        <td>{log[5]}</td>
+                    </tr>
+            """
+            
+        html_content += """
+                </tbody>
+            </table>
+            <p style="text-align: center; color: #888; font-size: 0.9em; margin-top: 20px;">
+                <em>Dashboard auto-refreshes every 30 seconds</em>
+            </p>
+        </body>
+        </html>
+        """
+        return html_content
     finally:
         conn.close()
 
