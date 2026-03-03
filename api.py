@@ -266,6 +266,18 @@ def get_stats(request: Request, company: dict = Depends(verify_api_key)):
     finally:
         conn.close()
 
+@app.get("/devices")
+@limiter.limit("10/minute")
+def get_devices(request: Request, company: dict = Depends(verify_api_key)):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT device_id, attestation_payload, registered_at FROM devices ORDER BY registered_at DESC')
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
 @app.get("/logs")
 @limiter.limit("10/minute")
 def get_logs(request: Request, company: dict = Depends(verify_api_key)):
