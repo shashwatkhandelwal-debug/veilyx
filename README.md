@@ -1,7 +1,7 @@
 # Veilyx
 ### Verification infrastructure for India. Proofs, not documents.
 
-![Veilyx Dashboard](<img width="1890" height="961" alt="Screenshot 2026-03-04 025136" src="https://github.com/user-attachments/assets/5d92d7fa-9f7e-4295-955b-599ebfc21678" />)
+![Veilyx Dashboard]<img width="1890" height="961" alt="Veilyx Dashboard" src="https://github.com/user-attachments/assets/5c732d80-f453-4390-af04-2dd69775eafd" />
 
 ---
 
