@@ -1,12 +1,16 @@
 import Foundation
 import CryptoKit
 import LocalAuthentication
+import UIKit
+import UniformTypeIdentifiers
 
 @objc(Veilyx)
-class Veilyx: NSObject {
+class Veilyx: NSObject, UIDocumentPickerDelegate {
     
     private let keyAlias = "veilyx_identity_key"
     private var deviceId: String = ""
+    private var pendingPickerResolve: RCTPromiseResolveBlock?
+    private var pendingPickerReject: RCTPromiseRejectBlock?
     
     @objc(initialize:withRejecter:)
     func initialize(resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
@@ -185,5 +189,67 @@ class Veilyx: NSObject {
         } catch {
             reject("VERIFY_ERROR", error.localizedDescription, error)
         }
+    }
+    
+    @objc(pickAadhaarFile:withRejecter:)
+    func pickAadhaarFile(resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        pendingPickerResolve = resolve
+        pendingPickerReject = reject
+        
+        DispatchQueue.main.async {
+            let supportedTypes: [UTType] = [UTType.xml, UTType.data]
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes)
+            picker.allowsMultipleSelection = false
+            picker.delegate = self
+            
+            if let viewController = RCTPresentedViewController() {
+                viewController.present(picker, animated: true, completion: nil)
+            } else {
+                self.pendingPickerResolve = nil
+                self.pendingPickerReject = nil
+                reject("PRESENT_ERROR", "Could not find a view controller to present the picker", nil)
+            }
+        }
+    }
+    
+    @objc(readAadhaarFile:withResolver:withRejecter:)
+    func readAadhaarFile(filePath: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        do {
+            let url = URL(fileURLWithPath: filePath)
+            let content = try String(contentsOf: url, encoding: .utf8)
+            resolve(content)
+        } catch {
+            reject("READ_ERROR", error.localizedDescription, error)
+        }
+    }
+    
+    // MARK: - UIDocumentPickerDelegate
+    
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else {
+            pendingPickerReject?("PICK_ERROR", "No file selected", nil)
+            pendingPickerResolve = nil
+            pendingPickerReject = nil
+            return
+        }
+        
+        let accessing = url.startAccessingSecurityScopedResource()
+        do {
+            let content = try String(contentsOf: url, encoding: .utf8)
+            pendingPickerResolve?(content)
+        } catch {
+            pendingPickerReject?("READ_ERROR", error.localizedDescription, nil)
+        }
+        if accessing {
+            url.stopAccessingSecurityScopedResource()
+        }
+        pendingPickerResolve = nil
+        pendingPickerReject = nil
+    }
+    
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        pendingPickerReject?("CANCELLED", "File picker was cancelled", nil)
+        pendingPickerResolve = nil
+        pendingPickerReject = nil
     }
 }
