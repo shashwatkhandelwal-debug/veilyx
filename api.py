@@ -318,6 +318,7 @@ def get_dashboard(request: Request, api_key: str):
         successful = row[1] or 0
         failed = row[2] or 0
         success_rate = round((successful / total * 100), 2) if total > 0 else 0.0
+        billing_amount = successful * 4
         
         # Logs
         cursor.execute('''
@@ -354,6 +355,7 @@ def get_dashboard(request: Request, api_key: str):
         <body>
             <h1>Veilyx ⚡ Verification Dashboard</h1>
             <p style="border-left: 3px solid #FF6B00; padding-left: 10px;">Welcome, <strong>{company['company_name']}</strong></p>
+            <p style="color: #888; font-size: 0.9em; margin-top: -10px;">Billing rate: ₹4 per successful verification</p>
             
             <div class="stats-container">
                 <div class="stat-box">
@@ -371,6 +373,10 @@ def get_dashboard(request: Request, api_key: str):
                 <div class="stat-box">
                     <div>Success Rate</div>
                     <div class="stat-value">{success_rate}%</div>
+                </div>
+                <div class="stat-box">
+                    <div>Total Billed</div>
+                    <div class="stat-value">₹{billing_amount}</div>
                 </div>
             </div>
 
