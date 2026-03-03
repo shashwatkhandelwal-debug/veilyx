@@ -172,6 +172,44 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
 
     return response_data
 
+@app.get("/stats")
+@limiter.limit("10/minute")
+def get_stats(request: Request):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                COUNT(*),
+                SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN is_valid = 0 THEN 1 ELSE 0 END),
+                MAX(created_at)
+            FROM verification_logs
+        ''')
+        row = cursor.fetchone()
+        total = row[0] or 0
+        successful = row[1] or 0
+        failed = row[2] or 0
+        recent = row[3]
+        
+        success_rate = round((successful / total * 100), 2) if total > 0 else 0.0
+        
+        cursor.execute('SELECT requested_by, COUNT(*) FROM verification_logs GROUP BY requested_by')
+        by_company = {r[0]: r[1] for r in cursor.fetchall()}
+        
+        return {
+            "total_verifications": total,
+            "successful_verifications": successful,
+            "failed_verifications": failed,
+            "tamper_attempts": failed,
+            "success_rate": success_rate,
+            "verifications_by_company": by_company,
+            "most_recent_verification": recent
+        }
+    finally:
+        conn.close()
+
 @app.get("/logs")
 @limiter.limit("10/minute")
 def get_logs(request: Request):
