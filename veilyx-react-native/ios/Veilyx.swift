@@ -252,4 +252,65 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
         pendingPickerResolve = nil
         pendingPickerReject = nil
     }
+    
+    // MARK: - DigiLocker Deep Link Handling
+    
+    @objc(handleDeepLink:withResolver:withRejecter:)
+    func handleDeepLink(url: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        guard let components = URLComponents(string: url) else {
+            reject("INVALID_LINK", "Could not parse URL", nil)
+            return
+        }
+        
+        let queryItems = components.queryItems ?? []
+        let code = queryItems.first(where: { $0.name == "code" })?.value
+        let state = queryItems.first(where: { $0.name == "state" })?.value
+        
+        guard let code = code, let state = state else {
+            reject("INVALID_LINK", "Missing code or state in callback URL", nil)
+            return
+        }
+        
+        resolve([
+            "code": code,
+            "state": state
+        ])
+    }
+    
+    @objc(handleDigiLockerCallback:withState:withResolver:withRejecter:)
+    func handleDigiLockerCallback(code: String, state: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        let urlString = "http://127.0.0.1:8000/digilocker/callback?code=\(code)&state=\(state)"
+        
+        guard let url = URL(string: urlString) else {
+            reject("CALLBACK_ERROR", "Invalid callback URL", nil)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                reject("CALLBACK_ERROR", "Network error: \(error.localizedDescription)", error)
+                return
+            }
+            
+            guard let data = data else {
+                reject("CALLBACK_ERROR", "No data received from server", nil)
+                return
+            }
+            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let aadhaarXml = json["aadhaar_xml"] as? String {
+                    resolve(aadhaarXml)
+                } else {
+                    reject("CALLBACK_ERROR", "Invalid response format from server", nil)
+                }
+            } catch {
+                reject("CALLBACK_ERROR", "Failed to parse server response: \(error.localizedDescription)", error)
+            }
+        }
+        task.resume()
+    }
 }
