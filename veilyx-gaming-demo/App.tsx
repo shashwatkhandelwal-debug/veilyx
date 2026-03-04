@@ -7,7 +7,8 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     Alert,
-    ScrollView
+    ScrollView,
+    Linking
 } from 'react-native';
 
 // Import the local SDK
@@ -20,6 +21,10 @@ const IntegratorDemoApp = () => {
     const [isVerifying, setIsVerifying] = useState(false);
     const [proofResult, setProofResult] = useState<any>(null);
     const [backendVerification, setBackendVerification] = useState<any>(null);
+
+    const handleOpenUIDAI = () => {
+        Linking.openURL('https://myaadhaar.uidai.gov.in/offline-ekyc');
+    };
 
     // 1. Initialize SDK & Register Device
     const handleSimulateAppStart = async () => {
@@ -162,6 +167,22 @@ const IntegratorDemoApp = () => {
                     <Text style={styles.cardDesc}>
                         User selects their Aadhaar Offline XML from their device. The file never leaves the device — it is read locally by the Veilyx SDK.
                     </Text>
+
+                    {deviceReg && (
+                        <TouchableOpacity
+                            style={[styles.buttonSecondary, { backgroundColor: '#FF6B00' }]}
+                            onPress={handleOpenUIDAI}
+                        >
+                            <Text style={styles.buttonText}>Download Aadhaar XML from UIDAI</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {deviceReg && (
+                        <Text style={{ color: '#666', fontSize: 12, marginTop: 10, lineHeight: 18 }}>
+                            Step 1: Download your Aadhaar Offline XML from UIDAI portal, then come back and tap 'Join Cash Table'
+                        </Text>
+                    )}
+
                     {!deviceReg && <Text style={{ color: '#999', fontSize: 12, marginTop: 5 }}>⚠️ Initialize SDK first</Text>}
                 </View>
 
