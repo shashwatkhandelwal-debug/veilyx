@@ -54,10 +54,21 @@ const IntegratorDemoApp = () => {
         try {
             setIsVerifying(true);
 
+            // Pick the Aadhaar Offline XML file from device
+            let aadhaarXml: string;
+            try {
+                aadhaarXml = await VeilyxSDK.pickAadhaarFile();
+            } catch (pickError: any) {
+                Alert.alert('Verification cancelled', 'Verification cancelled — Aadhaar file required.');
+                setIsVerifying(false);
+                return;
+            }
+
             // The gaming app asks the local SDK for an age proof
             const proof = await VeilyxSDK.requestProof({
-                companyName: "RummyKing Pro",
-                checks: ['age_above_18']
+                companyName: 'RummyKing Pro',
+                checks: ['age_above_18'],
+                aadhaarXml: aadhaarXml
             });
 
             setProofResult(proof);
@@ -78,7 +89,10 @@ const IntegratorDemoApp = () => {
             // In reality, this is a fetch() to the Integrator's backend, which calls Veilyx Python API
             const response = await fetch('http://10.0.2.2:8000/verify', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': 'YOUR_API_KEY_PLACEHOLDER'
+                },
                 body: JSON.stringify({
                     proof_payload: proof.proof_payload,
                     signature: proof.signature
@@ -143,6 +157,13 @@ const IntegratorDemoApp = () => {
                     )}
                 </View>
 
+                <View style={[styles.card, !deviceReg && styles.disabledCard]}>
+                    <Text style={styles.cardTitle}>1.5. Aadhaar XML Selection</Text>
+                    <Text style={styles.cardDesc}>
+                        User selects their Aadhaar Offline XML from their device. The file never leaves the device — it is read locally by the Veilyx SDK.
+                    </Text>
+                    {!deviceReg && <Text style={{ color: '#999', fontSize: 12, marginTop: 5 }}>⚠️ Initialize SDK first</Text>}
+                </View>
 
                 <View style={[styles.card, !deviceReg && styles.disabledCard]}>
                     <Text style={styles.cardTitle}>2. Age Verification Flow</Text>

@@ -46,7 +46,29 @@ const requestProof = (request: ProofRequest): Promise<SignedProof> => {
   return Veilyx.requestProof(request.companyName, request.checks, request.aadhaarXml || "");
 };
 
+/**
+ * Opens the native file picker for the user to select an Aadhaar XML file.
+ * On Android, launches ACTION_GET_CONTENT with XML mime types.
+ * On iOS, presents a UIDocumentPickerViewController for XML files.
+ * @returns The XML file contents as a string.
+ */
+const pickAadhaarFile = (): Promise<string> => {
+  return Veilyx.pickAadhaarFile();
+};
+
+/**
+ * Reads an Aadhaar XML file from a known file path and returns its contents.
+ * Use this when the file URI is already available (e.g., from a previous picker result on Android).
+ * @param filePath - The absolute file path or content URI to read from.
+ * @returns The XML file contents as a string.
+ */
+const readAadhaarFile = (filePath: string): Promise<string> => {
+  return Veilyx.readAadhaarFile(filePath);
+};
+
 export default {
   initialize,
-  requestProof
+  requestProof,
+  pickAadhaarFile,
+  readAadhaarFile
 };
