@@ -24,7 +24,8 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'veilyx.db')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'veilyx.db')
 
 DIGILOCKER_CLIENT_ID = "YOUR_CLIENT_ID_HERE"
 DIGILOCKER_CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
@@ -330,7 +331,8 @@ def get_dashboard(request: Request, api_key: str):
                 SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END),
                 SUM(CASE WHEN is_valid = 0 THEN 1 ELSE 0 END)
             FROM verification_logs
-        ''')
+            WHERE requested_by = ?
+        ''', (company['company_name'],))
         row = cursor.fetchone()
         total = row[0] or 0
         successful = row[1] or 0
@@ -341,9 +343,10 @@ def get_dashboard(request: Request, api_key: str):
         # Logs
         cursor.execute('''
             SELECT verification_id, device_id, requested_by, attributes_verified, is_valid, created_at 
-            FROM verification_logs 
+            FROM verification_logs
+            WHERE requested_by = ?
             ORDER BY created_at DESC LIMIT 10
-        ''')
+        ''', (company['company_name'],))
         logs = cursor.fetchall()
 
         # HTML Template Construction
@@ -479,7 +482,7 @@ async def digilocker_callback(request: Request, code: str = Query(...), state: s
         conn.close()
     
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             # Exchange authorization code for access token
             token_response = await client.post(
                 DIGILOCKER_TOKEN_URL,
