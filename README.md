@@ -126,6 +126,7 @@ const proof = await Veilyx.requestProof({
 // Send proof to your backend for verification
 // POST /verify with X-API-Key header
 ```
+---
 
 The Aadhaar XML file never leaves the device. Only the cryptographic proof is transmitted.
 ## Authentication
