@@ -18,6 +18,8 @@ import os
 import uuid
 import secrets
 import time
+import hmac
+import hashlib
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -74,6 +76,23 @@ def init_db():
                 used INTEGER DEFAULT 0
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS webhook_endpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_id TEXT,
+                company_name TEXT,
+                url TEXT,
+                secret TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER DEFAULT 1
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS used_nonces (
+                nonce TEXT PRIMARY KEY,
+                used_at REAL
+            )
+        ''')
         conn.commit()
     finally:
         conn.close()
@@ -118,6 +137,7 @@ class ProofPayload(BaseModel):
     requested_by: str = Field(..., min_length=1)
     attributes_verified: dict
     timestamp: str = Field(..., min_length=10)
+    nonce: str = Field(default="", description="Server-issued nonce for replay protection")
 
 class ProofVerificationRequest(BaseModel):
     proof_payload: ProofPayload
@@ -130,6 +150,9 @@ class ProofVerificationResponse(BaseModel):
 
 class CompanyRegistrationRequest(BaseModel):
     company_name: str = Field(..., min_length=1)
+
+class WebhookRegistrationRequest(BaseModel):
+    url: str = Field(..., min_length=10)
 
 @app.post("/company/register")
 @limiter.limit("3/minute")
@@ -157,6 +180,43 @@ def register_company(request: Request, body: CompanyRegistrationRequest):
         "api_key": api_key
     }
 
+@app.post("/webhooks/register")
+@limiter.limit("10/minute")
+def register_webhook(request: Request, body: WebhookRegistrationRequest, company: dict = Depends(verify_api_key)):
+    import re
+    if not re.match(r'https?://', body.url):
+        raise HTTPException(status_code=400, detail="Webhook URL must start with http:// or https://")
+    secret = secrets.token_urlsafe(32)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO webhook_endpoints (company_id, company_name, url, secret)
+            VALUES (?, ?, ?, ?)
+        ''', (company['company_id'], company['company_name'], body.url, secret))
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "status": "registered",
+        "webhook_url": body.url,
+        "secret": secret,
+        "message": "Store this secret. Use it to verify webhook payloads."
+    }
+
+@app.get("/nonce")
+@limiter.limit("30/minute")
+def get_nonce(request: Request, company: dict = Depends(verify_api_key)):
+    nonce = secrets.token_urlsafe(16)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO used_nonces (nonce, used_at) VALUES (?, ?)', (nonce, time.time()))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"nonce": nonce, "expires_in": 300}
+
 @app.post("/device/register", response_model=DeviceRegistrationResponse)
 @limiter.limit("5/minute")
 def register_device(request: Request, reg_request: DeviceRegistrationRequest):
@@ -177,9 +237,41 @@ def register_device(request: Request, reg_request: DeviceRegistrationRequest):
         
     return {"status": "SUCCESS", "message": f"Device {reg_request.device_id} registered securely."}
 
+async def fire_webhook(company_name: str, verification_id: str, device_id: str, attributes_verified: dict, is_valid: bool, timestamp: str):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT url, secret FROM webhook_endpoints WHERE company_name = ? AND is_active = 1', (company_name,))
+        endpoints = cursor.fetchall()
+    finally:
+        conn.close()
+    
+    if not endpoints:
+        return
+    
+    payload = {
+        "verification_id": verification_id,
+        "device_id": device_id,
+        "status": "verified" if is_valid else "failed",
+        "attributes_verified": attributes_verified,
+        "timestamp": timestamp
+    }
+    payload_json = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for url, secret in endpoints:
+            signature = hmac.new(secret.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+            try:
+                await client.post(url, content=payload_json, headers={
+                    'Content-Type': 'application/json',
+                    'X-Veilyx-Signature': signature
+                })
+            except Exception:
+                pass
+
 @app.post("/verify", response_model=ProofVerificationResponse)
 @limiter.limit("20/minute")
-def verify_proof(request: Request, verification_request: ProofVerificationRequest, company: dict = Depends(verify_api_key)):
+async def verify_proof(request: Request, verification_request: ProofVerificationRequest, company: dict = Depends(verify_api_key)):
     device_id = verification_request.proof_payload.device_id
     
     conn = sqlite3.connect(DB_PATH)
@@ -192,6 +284,21 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
         public_key_pem = row[0]
     finally:
         conn.close()
+
+    if verification_request.proof_payload.nonce:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT used_at FROM used_nonces WHERE nonce = ?', (verification_request.proof_payload.nonce,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="Invalid nonce. Request a fresh nonce from GET /nonce.")
+            if time.time() - row[0] > 300:
+                raise HTTPException(status_code=400, detail="Nonce expired. Request a fresh nonce from GET /nonce.")
+            cursor.execute('DELETE FROM used_nonces WHERE nonce = ?', (verification_request.proof_payload.nonce,))
+            conn.commit()
+        finally:
+            conn.close()
     
     try:
         public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
@@ -266,6 +373,15 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
     finally:
         conn.close()
 
+    await fire_webhook(
+        company_name=verification_request.proof_payload.requested_by,
+        verification_id=verification_request.proof_payload.verification_id,
+        device_id=device_id,
+        attributes_verified=verification_request.proof_payload.attributes_verified,
+        is_valid=bool(is_valid),
+        timestamp=verification_request.proof_payload.timestamp
+    )
+
     return response_data
 
 @app.get("/stats")
@@ -335,6 +451,30 @@ def get_logs(request: Request, company: dict = Depends(verify_api_key)):
         cursor.execute('SELECT * FROM verification_logs WHERE requested_by = ? ORDER BY created_at DESC LIMIT 50', (company['company_name'],))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+@app.get("/webhooks")
+@limiter.limit("10/minute")
+def list_webhooks(request: Request, company: dict = Depends(verify_api_key)):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, url, created_at, is_active FROM webhook_endpoints WHERE company_name = ?', (company['company_name'],))
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+@app.delete("/nonce/cleanup")
+def nonce_cleanup(company: dict = Depends(verify_api_key)):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM used_nonces WHERE ? - used_at > 300', (time.time(),))
+        deleted = cursor.rowcount
+        conn.commit()
+        return {"status": "SUCCESS", "deleted_count": deleted}
     finally:
         conn.close()
 
