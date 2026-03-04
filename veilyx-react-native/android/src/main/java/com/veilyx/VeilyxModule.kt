@@ -121,6 +121,10 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
 
     @ReactMethod
     fun requestProof(companyName: String, checks: ReadableArray, aadhaarXmlData: String, promise: Promise) {
+        if (deviceId.isEmpty()) {
+            promise.reject("NOT_INITIALIZED", "SDK not initialized. Call initialize() first.")
+            return
+        }
         try {
             // Simulated local verification logic with actual Aadhaar XML offline parsing check
             val verifiedAttributes = JSONObject()
@@ -177,29 +181,23 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
 
             // Construct deterministic JSON (keys sorted)
             val sortedKeys = proofPayload.keys().asSequence().sorted().toList()
-            val deterministicJson = StringBuilder("{")
-            for ((index, key) in sortedKeys.withIndex()) {
-                deterministicJson.append("\"").append(key).append("\":")
-                val value = proofPayload.get(key)
-                if (value is JSONObject) {
-                    val innerKeys = value.keys().asSequence().sorted().toList()
-                    deterministicJson.append("{")
-                    for ((innerIndex, innerKey) in innerKeys.withIndex()) {
-                        deterministicJson.append("\"").append(innerKey).append("\":")
-                         // Boolean handler
-                        if(value.getBoolean(innerKey)) deterministicJson.append("true") else deterministicJson.append("false")
-                        if (innerIndex < innerKeys.size - 1) deterministicJson.append(",")
+            fun toSortedJsonString(obj: JSONObject): String {
+                val sortedKeysFunc = obj.keys().asSequence().sorted().toList()
+                val sb = StringBuilder("{")
+                for ((index, key) in sortedKeysFunc.withIndex()) {
+                    sb.append(JSONObject.quote(key)).append(":")
+                    when (val value = obj.get(key)) {
+                        is JSONObject -> sb.append(toSortedJsonString(value))
+                        is String -> sb.append(JSONObject.quote(value))
+                        is Boolean -> sb.append(value)
+                        is Number -> sb.append(value)
+                        else -> sb.append(JSONObject.quote(value.toString()))
                     }
-                    deterministicJson.append("}")
-                } else if (value is String) {
-                    deterministicJson.append("\"").append(value).append("\"")
-                } else {
-                    deterministicJson.append(value)
+                    if (index < sortedKeysFunc.size - 1) sb.append(",")
                 }
-                
-                if (index < sortedKeys.size - 1) deterministicJson.append(",")
+                sb.append("}")
+                return sb.toString()
             }
-            deterministicJson.append("}")
 
             // Sign Payload
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
@@ -208,7 +206,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
 
             val signature = Signature.getInstance("SHA256withRSA")
             signature.initSign(entry.privateKey)
-            signature.update(deterministicJson.toString().toByteArray(Charsets.UTF_8))
+            signature.update(toSortedJsonString(proofPayload).toByteArray(Charsets.UTF_8))
             val signedBytes = signature.sign()
 
             val signatureBase64 = Base64.encodeToString(signedBytes, Base64.NO_WRAP)
@@ -291,5 +289,31 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
         } catch (e: Exception) {
             promise.reject("READ_ERROR", e.message)
         }
+    }
+
+    @ReactMethod
+    fun handleDigiLockerCallback(code: String, state: String, promise: Promise) {
+        Thread {
+            try {
+                val url = java.net.URL("http://10.0.2.2:8000/digilocker/callback?code=$code&state=$state")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 30000
+                connection.readTimeout = 30000
+                
+                val responseCode = connection.responseCode
+                if (responseCode != 200) {
+                    promise.reject("CALLBACK_ERROR", "Server returned $responseCode")
+                    return@Thread
+                }
+                
+                val response = connection.inputStream.bufferedReader().readText()
+                val json = JSONObject(response)
+                val aadhaarXml = json.getString("aadhaar_xml")
+                promise.resolve(aadhaarXml)
+            } catch (e: Exception) {
+                promise.reject("CALLBACK_ERROR", e.message)
+            }
+        }.start()
     }
 }
