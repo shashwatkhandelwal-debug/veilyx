@@ -25,7 +25,8 @@ public_key_pem = public_key.public_bytes(
 device_id = str(uuid.uuid4())
 print(f"[SUCCESS] SDK Initialized for Device: {device_id}")
 
-company_response = client.post("/company/register", json={"company_name": "QuickLoan Fintech"})
+unique_suffix = uuid.uuid4().hex[:6]
+company_response = client.post("/company/register", json={"company_name": f"QuickLoan Fintech {unique_suffix}"})
 api_key = company_response.json()["api_key"]
 print(f"[SUCCESS] Company registered with API key: {api_key[:8]}...")
 
@@ -44,7 +45,7 @@ print("\n--- Integrator app asks for age check ---")
 proof_payload = {
     "verification_id": str(uuid.uuid4()),
     "device_id": device_id,
-    "requested_by": "QuickLoan Fintech",
+    "requested_by": f"QuickLoan Fintech {unique_suffix}",
     "attributes_verified": {"age_above_18": True},
     "timestamp": datetime.now().isoformat()
 }

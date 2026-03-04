@@ -5,3 +5,4 @@ slowapi
 cryptography
 pytest
 requests
+httpx
