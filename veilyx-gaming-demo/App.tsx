@@ -14,6 +14,8 @@ import {
 // Import the local SDK
 import VeilyxSDK from 'veilyx-react-native';
 
+const VEILYX_API_KEY = process.env.VEILYX_API_KEY || 'YOUR_API_KEY_HERE';
+
 const IntegratorDemoApp = () => {
     const [isInitializing, setIsInitializing] = useState(false);
     const [deviceReg, setDeviceReg] = useState<any>(null);
@@ -114,7 +116,7 @@ const IntegratorDemoApp = () => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-API-Key': 'YOUR_API_KEY_PLACEHOLDER'
+                    'X-API-Key': VEILYX_API_KEY
                 },
                 body: JSON.stringify({
                     proof_payload: proof.proof_payload,
