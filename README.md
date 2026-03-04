@@ -160,7 +160,7 @@ curl -X POST http://127.0.0.1:8000/company/register \
 
 ## Pricing
 
-₹4 per successful verification. Billed per API call. Visible in your dashboard.
+₹8 per successful verification. Billed per API call. Visible in your dashboard.
 
 ---
 
