@@ -1,5 +1,8 @@
-from fastapi import FastAPI, HTTPException, Request, Depends, Header
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
+from fastapi.responses import HTMLResponse, RedirectResponse
+import httpx
+import hashlib
+import urllib.parse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -14,6 +17,7 @@ import sqlite3
 import os
 import uuid
 import secrets
+import time
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -21,6 +25,15 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'veilyx.db')
+
+DIGILOCKER_CLIENT_ID = "YOUR_CLIENT_ID_HERE"
+DIGILOCKER_CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
+DIGILOCKER_REDIRECT_URI = "http://127.0.0.1:8000/digilocker/callback"
+DIGILOCKER_AUTH_URL = "https://api.digitallocker.gov.in/public/oauth2/1/authorize"
+DIGILOCKER_TOKEN_URL = "https://api.digitallocker.gov.in/public/oauth2/1/token"
+DIGILOCKER_AADHAAR_URL = "https://api.digitallocker.gov.in/public/oauth2/1/xml/eaadhaar"
+
+oauth_state_store = {}
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -418,6 +431,88 @@ def get_dashboard(request: Request, api_key: str):
         return html_content
     finally:
         conn.close()
+
+@app.get("/digilocker/auth")
+@limiter.limit("10/minute")
+def digilocker_auth(request: Request):
+    state = secrets.token_urlsafe(16)
+    oauth_state_store[state] = {"timestamp": time.time(), "used": False}
+    
+    params = urllib.parse.urlencode({
+        "response_type": "code",
+        "client_id": DIGILOCKER_CLIENT_ID,
+        "redirect_uri": DIGILOCKER_REDIRECT_URI,
+        "state": state,
+        "scope": "openid"
+    })
+    auth_url = f"{DIGILOCKER_AUTH_URL}?{params}"
+    
+    return {"auth_url": auth_url, "state": state}
+
+
+@app.get("/digilocker/callback")
+async def digilocker_callback(request: Request, code: str = Query(...), state: str = Query(...)):
+    if state not in oauth_state_store:
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+    
+    del oauth_state_store[state]
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Exchange authorization code for access token
+            token_response = await client.post(
+                DIGILOCKER_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": DIGILOCKER_REDIRECT_URI,
+                    "client_id": DIGILOCKER_CLIENT_ID,
+                    "client_secret": DIGILOCKER_CLIENT_SECRET
+                }
+            )
+            
+            if token_response.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"DigiLocker token exchange failed: {token_response.text}"
+                )
+            
+            token_data = token_response.json()
+            access_token = token_data.get("access_token")
+            
+            if not access_token:
+                raise HTTPException(status_code=502, detail="No access token received from DigiLocker")
+            
+            # Fetch Aadhaar XML using the access token
+            aadhaar_response = await client.get(
+                DIGILOCKER_AADHAAR_URL,
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            
+            if aadhaar_response.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to fetch Aadhaar XML: {aadhaar_response.text}"
+                )
+            
+            xml_content = aadhaar_response.text
+            return {"aadhaar_xml": xml_content, "status": "SUCCESS"}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DigiLocker integration error: {str(e)}")
+
+
+@app.get("/digilocker/status")
+def digilocker_status():
+    if DIGILOCKER_CLIENT_ID != "YOUR_CLIENT_ID_HERE":
+        return {"configured": True}
+    return {
+        "configured": False,
+        "message": "DigiLocker credentials not configured. Replace YOUR_CLIENT_ID_HERE and YOUR_CLIENT_SECRET_HERE with real credentials from https://partners.digitallocker.gov.in"
+    }
+
 
 @app.get("/")
 def home():
