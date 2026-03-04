@@ -21,9 +21,27 @@ const IntegratorDemoApp = () => {
     const [isVerifying, setIsVerifying] = useState(false);
     const [proofResult, setProofResult] = useState<any>(null);
     const [backendVerification, setBackendVerification] = useState<any>(null);
+    const [isDigiLockerLoading, setIsDigiLockerLoading] = useState(false);
 
     const handleOpenUIDAI = () => {
         Linking.openURL('https://myaadhaar.uidai.gov.in/offline-ekyc');
+    };
+
+    const handleDigiLockerVerify = async () => {
+        if (!deviceReg) {
+            Alert.alert('Error', 'Please initialize the SDK first');
+            return;
+        }
+        try {
+            setIsDigiLockerLoading(true);
+            const response = await fetch('http://10.0.2.2:8000/digilocker/auth');
+            const data = await response.json();
+            await Linking.openURL(data.auth_url);
+        } catch (e: any) {
+            Alert.alert('DigiLocker Error', e.message);
+        } finally {
+            setIsDigiLockerLoading(false);
+        }
     };
 
     // 1. Initialize SDK & Register Device
@@ -180,6 +198,28 @@ const IntegratorDemoApp = () => {
                     {deviceReg && (
                         <Text style={{ color: '#666', fontSize: 12, marginTop: 10, lineHeight: 18 }}>
                             Step 1: Download your Aadhaar Offline XML from UIDAI portal, then come back and tap 'Join Cash Table'
+                        </Text>
+                    )}
+
+                    {deviceReg && (
+                        <Text style={{ color: '#999', fontSize: 12, marginTop: 15, marginBottom: 15, textAlign: 'center' }}>
+                            ── OR ──
+                        </Text>
+                    )}
+
+                    {deviceReg && (
+                        <TouchableOpacity
+                            style={[styles.buttonSecondary, { backgroundColor: '#FF6B00' }]}
+                            onPress={handleDigiLockerVerify}
+                            disabled={isDigiLockerLoading}
+                        >
+                            {isDigiLockerLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Connect via DigiLocker (1-tap)</Text>}
+                        </TouchableOpacity>
+                    )}
+
+                    {deviceReg && (
+                        <Text style={{ color: '#666', fontSize: 12, marginTop: 10, lineHeight: 18 }}>
+                            Faster: DigiLocker fetches your Aadhaar XML automatically with your consent
                         </Text>
                     )}
 
