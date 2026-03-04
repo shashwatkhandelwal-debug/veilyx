@@ -58,7 +58,11 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
                 storedKey = (item as! SecKey)
             } else {
                 guard let newKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
+                    #if targetEnvironment(simulator)
+                    reject("INIT_ERROR", "Secure Enclave is not available on iOS Simulator. Please test on a real device.", nil)
+                    #else
                     reject("INIT_ERROR", "Could not generate Secure Enclave key: \(error?.takeRetainedValue().localizedDescription ?? "")", nil)
+                    #endif
                     return
                 }
                 storedKey = newKey
@@ -94,6 +98,10 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
     @objc(requestProof:withChecks:withAadhaar:withResolver:withRejecter:)
     func requestProof(companyName: String, checks: [String], aadhaarXmlData: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         do {
+            guard !deviceId.isEmpty else {
+                reject("NOT_INITIALIZED", "SDK not initialized. Call initialize() first.", nil)
+                return
+            }
             let tag = keyAlias.data(using: .utf8)!
             let getQuery: [String: Any] = [
                 kSecClass as String: kSecClassKey,
@@ -215,7 +223,7 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
     @objc(readAadhaarFile:withResolver:withRejecter:)
     func readAadhaarFile(filePath: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         do {
-            let url = URL(fileURLWithPath: filePath)
+            let url = URL(string: filePath) ?? URL(fileURLWithPath: filePath)
             let content = try String(contentsOf: url, encoding: .utf8)
             resolve(content)
         } catch {
