@@ -66,9 +66,32 @@ const readAadhaarFile = (filePath: string): Promise<string> => {
   return Veilyx.readAadhaarFile(filePath);
 };
 
+/**
+ * Call this from your app's deep link handler when DigiLocker redirects back.
+ * Parses the callback URL and extracts the OAuth code and state parameters.
+ * @param url - The full callback URL from DigiLocker redirect.
+ * @returns An object containing the authorization code and state.
+ */
+const handleDeepLink = (url: string): Promise<{ code: string, state: string }> => {
+  return Veilyx.handleDeepLink(url);
+};
+
+/**
+ * Exchanges the OAuth authorization code for Aadhaar XML via Veilyx backend.
+ * Call this after receiving code and state from handleDeepLink.
+ * @param code - The OAuth authorization code from DigiLocker.
+ * @param state - The OAuth state parameter for CSRF validation.
+ * @returns The Aadhaar XML content as a string.
+ */
+const handleDigiLockerCallback = (code: string, state: string): Promise<string> => {
+  return Veilyx.handleDigiLockerCallback(code, state);
+};
+
 export default {
   initialize,
   requestProof,
   pickAadhaarFile,
-  readAadhaarFile
+  readAadhaarFile,
+  handleDeepLink,
+  handleDigiLockerCallback
 };
