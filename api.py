@@ -33,8 +33,6 @@ DIGILOCKER_AUTH_URL = "https://api.digitallocker.gov.in/public/oauth2/1/authoriz
 DIGILOCKER_TOKEN_URL = "https://api.digitallocker.gov.in/public/oauth2/1/token"
 DIGILOCKER_AADHAAR_URL = "https://api.digitallocker.gov.in/public/oauth2/1/xml/eaadhaar"
 
-oauth_state_store = {}
-
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -66,6 +64,13 @@ def init_db():
                 api_key TEXT UNIQUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                state TEXT PRIMARY KEY,
+                created_at REAL,
+                used INTEGER DEFAULT 0
             )
         ''')
         conn.commit()
@@ -436,7 +441,14 @@ def get_dashboard(request: Request, api_key: str):
 @limiter.limit("10/minute")
 def digilocker_auth(request: Request):
     state = secrets.token_urlsafe(16)
-    oauth_state_store[state] = {"timestamp": time.time(), "used": False}
+    
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO oauth_states (state, created_at) VALUES (?, ?)', (state, time.time()))
+        conn.commit()
+    finally:
+        conn.close()
     
     params = urllib.parse.urlencode({
         "response_type": "code",
@@ -452,10 +464,19 @@ def digilocker_auth(request: Request):
 
 @app.get("/digilocker/callback")
 async def digilocker_callback(request: Request, code: str = Query(...), state: str = Query(...)):
-    if state not in oauth_state_store:
-        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
-    
-    del oauth_state_store[state]
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT created_at FROM oauth_states WHERE state = ? AND used = 0', (state,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail='Invalid or expired OAuth state')
+        if time.time() - row[0] > 600:
+            raise HTTPException(status_code=400, detail='OAuth state expired. Please try again.')
+        cursor.execute('UPDATE oauth_states SET used = 1 WHERE state = ?', (state,))
+        conn.commit()
+    finally:
+        conn.close()
     
     try:
         async with httpx.AsyncClient() as client:
@@ -502,6 +523,19 @@ async def digilocker_callback(request: Request, code: str = Query(...), state: s
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DigiLocker integration error: {str(e)}")
+
+
+@app.delete("/digilocker/cleanup")
+def digilocker_cleanup():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM oauth_states WHERE used = 1 OR ? - created_at > 600', (time.time(),))
+        deleted_count = cursor.rowcount
+        conn.commit()
+        return {"status": "SUCCESS", "deleted_count": deleted_count}
+    finally:
+        conn.close()
 
 
 @app.get("/digilocker/status")
