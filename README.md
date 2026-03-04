@@ -1,7 +1,7 @@
 # Veilyx
 ### Verification infrastructure for India. Proofs, not documents.
 
-Veilyx Dashboard <img width="1890" height="961" alt="Veilyx Dashboard" src="https://github.com/user-attachments/assets/5c732d80-f453-4390-af04-2dd69775eafd" />
+ <img width="1890" height="961" alt="Veilyx Dashboard" src="https://github.com/user-attachments/assets/5c732d80-f453-4390-af04-2dd69775eafd" />
 
 ---
 
@@ -99,6 +99,35 @@ The verification flow has four steps:
 
 ---
 
+## SDK Methods
+
+| Method | Platform | What it does |
+|--------|----------|--------------|
+| `initialize()` | Android, iOS | Generates hardware-backed key pair, returns deviceId and public key |
+| `requestProof(request)` | Android, iOS | Runs local verification, returns signed proof |
+| `pickAadhaarFile()` | Android, iOS | Opens native file picker, user selects Aadhaar XML, returns file contents |
+| `readAadhaarFile(filePath)` | Android, iOS | Reads Aadhaar XML from a known file path, returns file contents |
+
+### Usage example
+```typescript
+// Initialize on app start
+const { deviceId, publicKeyPem } = await Veilyx.initialize();
+
+// Let user pick their Aadhaar XML securely
+const aadhaarXml = await Veilyx.pickAadhaarFile();
+
+// Request age verification proof
+const proof = await Veilyx.requestProof({
+  companyName: 'YourApp',
+  checks: ['age_above_18'],
+  aadhaarXml: aadhaarXml
+});
+
+// Send proof to your backend for verification
+// POST /verify with X-API-Key header
+```
+
+The Aadhaar XML file never leaves the device. Only the cryptographic proof is transmitted.
 ## Authentication
 
 Protected endpoints require an `X-API-Key` header:
