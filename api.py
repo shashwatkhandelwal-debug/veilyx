@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
-import hashlib
+import html
 import urllib.parse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -140,6 +140,9 @@ def register_company(request: Request, body: CompanyRegistrationRequest):
     conn = sqlite3.connect(DB_PATH)
     try:
         cursor = conn.cursor()
+        cursor.execute('SELECT company_id FROM companies WHERE company_name = ?', (body.company_name,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=409, detail='Company name already registered')
         cursor.execute('''
             INSERT INTO companies (company_id, company_name, api_key)
             VALUES (?, ?, ?)
@@ -226,6 +229,23 @@ def verify_proof(request: Request, verification_request: ProofVerificationReques
         is_valid = 0
         response_data = {"valid": False, "message": "CRITICAL: Signature verification failed. Proof may be tampered with."}
     except Exception as e:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO verification_logs (verification_id, device_id, requested_by, attributes_verified, timestamp, is_valid)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                verification_request.proof_payload.verification_id,
+                device_id,
+                verification_request.proof_payload.requested_by,
+                json.dumps(verification_request.proof_payload.attributes_verified),
+                verification_request.proof_payload.timestamp,
+                0
+            ))
+            conn.commit()
+        finally:
+            conn.close()
         raise HTTPException(status_code=500, detail=str(e))
 
     conn = sqlite3.connect(DB_PATH)
@@ -262,7 +282,8 @@ def get_stats(request: Request, company: dict = Depends(verify_api_key)):
                 SUM(CASE WHEN is_valid = 0 THEN 1 ELSE 0 END),
                 MAX(created_at)
             FROM verification_logs
-        ''')
+            WHERE requested_by = ?
+        ''', (company['company_name'],))
         row = cursor.fetchone()
         total = row[0] or 0
         successful = row[1] or 0
@@ -271,7 +292,7 @@ def get_stats(request: Request, company: dict = Depends(verify_api_key)):
         
         success_rate = round((successful / total * 100), 2) if total > 0 else 0.0
         
-        cursor.execute('SELECT requested_by, COUNT(*) FROM verification_logs GROUP BY requested_by')
+        cursor.execute('SELECT requested_by, COUNT(*) FROM verification_logs WHERE requested_by = ? GROUP BY requested_by', (company['company_name'],))
         by_company = {r[0]: r[1] for r in cursor.fetchall()}
         
         return {
@@ -292,7 +313,14 @@ def get_devices(request: Request, company: dict = Depends(verify_api_key)):
     conn = sqlite3.connect(DB_PATH)
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT device_id, attestation_payload, registered_at FROM devices ORDER BY registered_at DESC')
+        cursor.execute('''
+            SELECT d.device_id, d.attestation_payload, d.registered_at 
+            FROM devices d
+            WHERE d.device_id IN (
+                SELECT DISTINCT device_id FROM verification_logs WHERE requested_by = ?
+            )
+            ORDER BY d.registered_at DESC
+        ''', (company['company_name'],))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
     finally:
@@ -304,7 +332,7 @@ def get_logs(request: Request, company: dict = Depends(verify_api_key)):
     conn = sqlite3.connect(DB_PATH)
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM verification_logs ORDER BY created_at DESC LIMIT 50')
+        cursor.execute('SELECT * FROM verification_logs WHERE requested_by = ? ORDER BY created_at DESC LIMIT 50', (company['company_name'],))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
     finally:
@@ -375,7 +403,7 @@ def get_dashboard(request: Request, api_key: str):
         </head>
         <body>
             <h1>Veilyx ⚡ Verification Dashboard</h1>
-            <p style="border-left: 3px solid #FF6B00; padding-left: 10px;">Welcome, <strong>{company['company_name']}</strong></p>
+            <p style="border-left: 3px solid #FF6B00; padding-left: 10px;">Welcome, <strong>{html.escape(company['company_name'])}</strong></p>
             <p style="color: #888; font-size: 0.9em; margin-top: -10px;">Billing rate: ₹4 per successful verification</p>
             
             <div class="stats-container">
@@ -419,11 +447,11 @@ def get_dashboard(request: Request, api_key: str):
             status_text = "VALID" if log[4] == 1 else "TAMPERED"
             html_content += f"""
                     <tr>
-                        <td>{log[0][:8]}...</td>
-                        <td>{log[1][:8]}...</td>
-                        <td><code>{log[3]}</code></td>
+                        <td>{html.escape(str(log[0][:8]))}...</td>
+                        <td>{html.escape(str(log[1][:8]))}...</td>
+                        <td><code>{html.escape(str(log[3]))}</code></td>
                         <td class="{status_class}">{status_text}</td>
-                        <td>{log[5]}</td>
+                        <td>{html.escape(str(log[5]))}</td>
                     </tr>
             """
             
@@ -529,7 +557,7 @@ async def digilocker_callback(request: Request, code: str = Query(...), state: s
 
 
 @app.delete("/digilocker/cleanup")
-def digilocker_cleanup():
+def digilocker_cleanup(company: dict = Depends(verify_api_key)):
     conn = sqlite3.connect(DB_PATH)
     try:
         cursor = conn.cursor()
