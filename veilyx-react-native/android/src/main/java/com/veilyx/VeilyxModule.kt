@@ -135,7 +135,10 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                     var verified = false
                     try {
                         val factory = XmlPullParserFactory.newInstance()
+                        factory.isNamespaceAware = false
                         val parser = factory.newPullParser()
+                        parser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
+                        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
                         parser.setInput(StringReader(aadhaarXmlData))
                         var eventType = parser.eventType
                         while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -296,7 +299,8 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
     fun handleDigiLockerCallback(code: String, state: String, promise: Promise) {
         Thread {
             try {
-                val url = java.net.URL("http://10.0.2.2:8000/digilocker/callback?code=$code&state=$state")
+                val backendUrl = com.veilyx.VeilyxConfig.BACKEND_URL
+                val url = java.net.URL("$backendUrl/digilocker/callback?code=$code&state=$state")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 30000
