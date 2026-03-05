@@ -186,8 +186,28 @@ def register_company(request: Request, body: CompanyRegistrationRequest):
 @limiter.limit("10/minute")
 def register_webhook(request: Request, body: WebhookRegistrationRequest, company: dict = Depends(verify_api_key)):
     import re
+    import ipaddress
+    from urllib.parse import urlparse
+
     if not re.match(r'https?://', body.url):
         raise HTTPException(status_code=400, detail="Webhook URL must start with http:// or https://")
+
+    try:
+        parsed = urlparse(body.url)
+        hostname = parsed.hostname
+        if not hostname:
+            raise HTTPException(status_code=400, detail="Invalid webhook URL: missing hostname")
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                raise HTTPException(status_code=400, detail="Webhook URL must not point to internal or private addresses")
+        except ValueError:
+            if hostname in ('localhost', '0.0.0.0') or hostname.endswith('.internal') or hostname.endswith('.local'):
+                raise HTTPException(status_code=400, detail="Webhook URL must not point to internal addresses")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook URL")
     secret = secrets.token_urlsafe(32)
     conn = sqlite3.connect(DB_PATH)
     try:
