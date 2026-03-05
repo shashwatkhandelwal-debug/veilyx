@@ -20,7 +20,6 @@ import java.io.InputStreamReader
 
 import java.security.KeyPairGenerator
 import java.security.KeyStore
-import java.security.spec.ECGenParameterSpec
 import java.util.UUID
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -184,7 +183,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
             proofPayload.put("timestamp", timestamp)
 
             // Construct deterministic JSON (keys sorted)
-            val sortedKeys = proofPayload.keys().asSequence().sorted().toList()
+
             fun toSortedJsonString(obj: JSONObject): String {
                 val sortedKeysFunc = obj.keys().asSequence().sorted().toList()
                 val sb = StringBuilder("{")

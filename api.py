@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import html
@@ -21,9 +22,14 @@ import secrets
 import time
 import hmac
 import hashlib
-from datetime import datetime, timezone
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -120,9 +126,7 @@ def verify_api_key(api_key: str = Header(..., alias='X-API-Key')):
 
 init_db()
 
-@app.on_event('startup')
-def startup_event():
-    init_db()
+
 
 class DeviceRegistrationRequest(BaseModel):
     device_id: str = Field(..., min_length=1, description="Unique Device ID")
