@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import base64
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -47,7 +47,7 @@ proof_payload = {
     "device_id": device_id,
     "requested_by": f"QuickLoan Fintech {unique_suffix}",
     "attributes_verified": {"age_above_18": True},
-    "timestamp": datetime.now().isoformat()
+    "timestamp": datetime.now(timezone.utc).isoformat()
 }
 
 # 5. SDK signs the payload

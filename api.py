@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
+from datetime import datetime, timezone
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import html
@@ -20,6 +20,7 @@ import secrets
 import time
 import hmac
 import hashlib
+from datetime import datetime, timezone
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -288,6 +289,22 @@ async def verify_proof(request: Request, verification_request: ProofVerification
         public_key_pem = row[0]
     finally:
         conn.close()
+
+
+    try:
+        proof_ts = datetime.fromisoformat(
+            verification_request.proof_payload.timestamp.replace("Z", "+00:00")
+        )
+        age_seconds = (datetime.now(timezone.utc) - proof_ts).total_seconds()
+        if age_seconds > 300:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Proof expired. Proof is {int(age_seconds)}s old. Maximum age is 300 seconds."
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid proof timestamp format.")
 
     if verification_request.proof_payload.nonce:
         conn = sqlite3.connect(DB_PATH)
