@@ -287,7 +287,8 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
     
     @objc(handleDigiLockerCallback:withState:withResolver:withRejecter:)
     func handleDigiLockerCallback(code: String, state: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-        let urlString = "http://127.0.0.1:8000/digilocker/callback?code=\(code)&state=\(state)"
+        let backendUrl = Bundle.main.object(forInfoDictionaryKey: "VEILYX_BACKEND_URL") as? String ?? "http://127.0.0.1:8000"
+        let urlString = "\(backendUrl)/digilocker/callback?code=\(code)&state=\(state)"
         
         guard let url = URL(string: urlString) else {
             reject("CALLBACK_ERROR", "Invalid callback URL", nil)
@@ -296,6 +297,7 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = 30.0
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
