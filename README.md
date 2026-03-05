@@ -1,41 +1,223 @@
 # Veilyx
-### Verification infrastructure for India. Proofs, not documents.
+### Verification infrastructure for India  
+**Proofs, not documents.**
 
- <img width="1890" height="961" alt="Veilyx Dashboard" src="https://github.com/user-attachments/assets/5c732d80-f453-4390-af04-2dd69775eafd" />
+![Python](https://img.shields.io/badge/python-3.10+-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Status](https://img.shields.io/badge/status-experimental-orange)
 
----
-
-## Why I built this
-
-I was reading about the HDFC Bank data leak and something clicked. Why are companies collecting and storing actual Aadhaar cards, PAN numbers and bank statements just to verify someone is over 18 or has a valid document?
-
-They don't need the document. They need the answer.
-
-That's what Veilyx does. A company asks "is this user above 18?" and gets back a cryptographic proof: yes or no, verified, timestamped, signed. No raw data ever leaves the user's device. No documents stored on company servers. No breach liability.
-
-India's DPDP Act is now in force. Companies that store unnecessary personal data are going to get hit hard. Veilyx makes compliance the default, not an afterthought.
+<img width="1890" height="961" alt="Veilyx Dashboard" src="https://github.com/user-attachments/assets/5c732d80-f453-4390-af04-2dd69775eafd" />
 
 ---
 
-## Who it's for
+# Overview
 
-Any app that verifies user identity. If you're asking users to upload an Aadhaar copy, store a PAN number or collect any personal document just to answer a yes or no question, Veilyx is built for you.
+Many apps need to verify user attributes such as **age or identity**.
 
-Current use cases:
-- Real Money Gaming apps that need age verification before allowing cash tables
-- Dating platforms that need to confirm users are adults
-- Fintech and lending apps doing KYC before onboarding
-- BNPL platforms verifying user identity at checkout
-- Insurance aggregators confirming policyholder details
-- Any age-gated content platform under DPDP obligations
+Today this usually requires collecting sensitive documents such as Aadhaar or other government IDs.  
+This creates major problems:
 
-The verification runs entirely on the user's device. Only a cryptographic proof gets returned to your backend. The document never moves. The use case doesn't matter, the architecture is the same.
+- privacy risks
+- data breach liability
+- regulatory overhead
+- unnecessary storage of personal data
+
+**Veilyx replaces document sharing with cryptographic proofs.**
+
+Instead of sending documents, the user’s device generates a **signed proof** confirming a specific attribute (for example `age_above_18`). The application receives only the verification result — never the document itself.
+
+Example:
+
+```json
+{
+  "attributes_verified": {
+    "age_above_18": true
+  }
+}
+```
+
+No identity document is transmitted or stored.
 
 ---
 
-## What it does
+# Quick Example
 
-Veilyx is a B2B identity verification API and SDK. Companies integrate it, send a verification request with user consent, and get back a proof object — not a document.
+```javascript
+const proof = await Veilyx.requestProof({
+  checks: ["age_above_18"]
+})
+
+await fetch("https://api.veilyx.com/verify", {
+  method: "POST",
+  headers: { "X-API-Key": API_KEY },
+  body: JSON.stringify(proof)
+})
+```
+
+Verification response:
+
+```json
+{
+  "status": "VERIFIED",
+  "attributes_verified": {
+    "age_above_18": true
+  }
+}
+```
+
+---
+
+# Architecture
+
+```
+User Device
+   │
+   │ Aadhaar Offline XML
+   ▼
+Local Verification (SDK)
+   │
+   │ Signed cryptographic proof
+   ▼
+Veilyx Backend
+   │
+   │ Signature validation
+   ▼
+Integrator App
+```
+
+The backend verifies **cryptographic signatures**, not documents.
+
+---
+
+# How It Works
+
+## 1. Device Registration
+
+The SDK generates a hardware-backed key pair inside the secure enclave.
+
+Platforms:
+
+- Android → AndroidKeyStore  
+- iOS → Secure Enclave  
+
+The **private key never leaves the device**.
+
+The public key is registered with the Veilyx backend.
+
+---
+
+## 2. Local Verification
+
+Aadhaar Offline XML is parsed **entirely on-device**.
+
+Example:
+
+```
+DOB extracted locally
+Age calculated locally
+```
+
+Only the verification result is used.
+
+No document data is transmitted.
+
+---
+
+## 3. Cryptographic Signing
+
+The SDK constructs a proof payload and signs it with the device private key.
+
+Each proof is **cryptographically bound to that device**.
+
+---
+
+## 4. Backend Verification
+
+The signed proof is sent to:
+
+```
+POST /verify
+```
+
+The backend:
+
+- retrieves the registered device public key
+- verifies the cryptographic signature
+- rejects tampered proofs
+
+---
+
+# Trust Model
+
+Veilyx minimizes data exposure.
+
+The backend **never receives identity documents**.
+
+It only receives:
+
+- verification result
+- device identifier
+- cryptographic signature
+
+This significantly reduces privacy and compliance risks.
+
+---
+
+# Use Cases
+
+Veilyx is designed for apps that require **privacy-preserving verification**.
+
+## Dating Apps 
+
+Dating platforms must verify users are **18+** while avoiding collection of sensitive documents.
+
+Veilyx allows apps to verify age without storing Aadhaar or other identity documents.
+
+Benefits:
+
+- prevents underage users
+- reduces catfishing
+- avoids storing identity documents
+- enables verified profile badges
+
+Example verification:
+
+```json
+{
+  "attributes_verified": {
+    "age_above_18": true
+  }
+}
+```
+
+---
+
+## Gaming Platforms
+
+Age verification for games that require **18+ players**.
+
+---
+
+## Marketplaces
+
+Seller verification without storing government documents.
+
+---
+
+## Fintech Apps
+
+Attribute-based verification with reduced compliance burden.
+
+---
+
+## Hiring Platforms
+
+Identity verification for candidates during onboarding.
+
+---
+
+# Proof Object
 
 ```json
 {
@@ -51,204 +233,208 @@ Veilyx is a B2B identity verification API and SDK. Companies integrate it, send 
 }
 ```
 
-Notice: `raw_data_shared: false`. Always.
-
 ---
 
-## How it works
-
-The verification flow has four steps:
-
-1. **Device registration** — on app launch, the SDK generates an RSA/P256 key pair inside the hardware secure enclave (AndroidKeyStore on Android, iOS Secure Enclave on iPhone). The private key never leaves the device. The public key is registered with the Veilyx backend.
-
-2. **Local verification** — when the app requests a proof, the user's Aadhaar Offline XML is parsed entirely on-device. The DOB is extracted locally and age is computed. No document is transmitted anywhere.
-
-3. **Cryptographic signing** — the verification result is assembled into a proof payload and signed using the hardware-backed private key. The signature is mathematically unique to that device.
-
-4. **Backend verification** — the signed proof is sent to POST /verify. The backend checks the cryptographic signature against the registered public key. If valid, the proof is authentic. Tampered proofs are rejected instantly.
-
----
-
-## Tech stack
+# Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| Backend API | Python 3.14 / FastAPI / slowapi |
-| Database | SQLite (persistent device registry + verification logs) |
-| Cryptography | Python cryptography library — RSA-2048 + P256 ECDSA |
-| Android SDK | Kotlin / AndroidKeyStore / Play Integrity API |
-| iOS SDK | Swift / CryptoKit / Secure Enclave / iOS Keychain |
-| React Native | veilyx-react-native SDK + Objective-C bridge |
-| Demo App | RummyKing Pro (veilyx-gaming-demo) |
+|------|-------------|
+| Backend API | Python 3.10+, FastAPI, slowapi |
+| Database | SQLite (dev), PostgreSQL (production) |
+| Cryptography | Python cryptography library (RSA-2048 + P256 ECDSA) |
+| Android SDK | Kotlin, AndroidKeyStore, XmlPullParser, Play Integrity API |
+| iOS SDK | Swift, CryptoKit, Secure Enclave |
+| React Native bridge | Objective-C |
+| Demo app | React Native |
 
 ---
 
-## API endpoints
+# API Endpoints
 
-| Method | Endpoint | Auth | What it does |
-|--------|----------|------|--------------|
+| Method | Endpoint | Auth | Description |
+|------|------|------|------|
 | GET | `/` | None | Health check |
-| POST | `/company/register` | None | Register a company, receive API key |
-| POST | `/device/register` | None | Register a device public key |
-| POST | `/verify` | API Key | Verify a signed proof |
-| GET | `/stats` | API Key | Verification analytics and billing |
-| GET | `/logs` | API Key | Last 50 verification logs |
-| GET | `/devices` | API Key | All registered devices |
-| GET | `/dashboard` | API Key (query param) | Live verification dashboard |
-| GET | `/docs` | None | Interactive Swagger UI |
+| POST | `/company/register` | None | Register company |
+| POST | `/device/register` | None | Register device public key |
+| GET | `/nonce` | API Key | Get replay-protection nonce |
+| POST | `/verify` | API Key | Verify signed proof |
+| GET | `/stats` | API Key | Verification analytics |
+| GET | `/logs` | API Key | Verification logs |
+| GET | `/devices` | API Key | Registered devices |
+| GET | `/dashboard` | API Key | Live verification dashboard |
+| POST | `/webhooks/register` | API Key | Register webhook |
+| GET | `/webhooks` | API Key | List webhooks |
+| DELETE | `/nonce/cleanup` | API Key | Delete expired nonces |
+| GET | `/digilocker/auth` | None | Start DigiLocker OAuth |
+| GET | `/digilocker/callback` | None | DigiLocker callback |
+| GET | `/digilocker/status` | None | DigiLocker configuration |
+| DELETE | `/digilocker/cleanup` | API Key | Cleanup OAuth states |
+| GET | `/docs` | None | Swagger docs |
 
 ---
 
-## SDK Methods
+# SDK Methods
 
-| Method | Platform | What it does |
-|--------|----------|--------------|
-| `initialize()` | Android, iOS | Generates hardware-backed key pair, returns deviceId and public key |
-| `requestProof(request)` | Android, iOS | Runs local verification, returns signed proof |
-| `pickAadhaarFile()` | Android, iOS | Opens native file picker, user selects Aadhaar XML, returns file contents |
-| `readAadhaarFile(filePath)` | Android, iOS | Reads Aadhaar XML from a known file path, returns file contents |
+| Method | Platform | Description |
+|------|------|------|
+| `initialize()` | Android, iOS | Generate device key pair |
+| `requestProof()` | Android, iOS | Generate signed proof |
+| `pickAadhaarFile()` | Android, iOS | Open file picker |
+| `readAadhaarFile()` | Android, iOS | Read Aadhaar XML |
+| `handleDigiLockerCallback()` | Android, iOS | Handle OAuth callback |
+| `handleDeepLink()` | Android, iOS | Parse deep link |
 
-### Usage example
-```typescript
-// Initialize on app start
-const { deviceId, publicKeyPem } = await Veilyx.initialize();
-
-// Let user pick their Aadhaar XML securely
-const aadhaarXml = await Veilyx.pickAadhaarFile();
-
-// Request age verification proof
-const proof = await Veilyx.requestProof({
-  companyName: 'YourApp',
-  checks: ['age_above_18'],
-  aadhaarXml: aadhaarXml
-});
-
-// Send proof to your backend for verification
-// POST /verify with X-API-Key header
-```
 ---
 
-The Aadhaar XML file never leaves the device. Only the cryptographic proof is transmitted.
-## Authentication
+# Authentication
 
-Protected endpoints require an `X-API-Key` header:
+All protected endpoints require:
 
-```bash
-curl -X POST http://127.0.0.1:8000/verify \
-  -H "X-API-Key: your_api_key_here" \
-  -H "Content-Type: application/json" \
-  -d '{"proof_payload": {...}, "signature": "..."}'
+```
+X-API-Key: your_api_key_here
 ```
 
-Register a company to get an API key:
+Register company:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/company/register \
+curl -X POST https://your-backend.railway.app/company/register \
   -H "Content-Type: application/json" \
   -d '{"company_name": "Your Company"}'
 ```
 
----
+Verify proof:
 
-## Verification checks supported
-
-- `age_above_18` — confirms user is 18 or older based on Aadhaar Offline XML DOB
-- `name_match` — matches user's name against company-provided name
-- `document_valid` — confirms document hasn't been flagged invalid
-
----
-
-## Pricing
-
-₹8 per successful verification. Billed per API call. Visible in your dashboard.
+```bash
+curl -X POST https://your-backend.railway.app/verify \
+  -H "X-API-Key: your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"proof_payload": {}, "signature": ""}'
+```
 
 ---
 
-## How to run it
+# Webhooks
 
-**Requirements**
-- Python 3.10+
+Webhook requests include:
 
-**Install dependencies**
+```
+X-Veilyx-Signature
+```
+
+An HMAC-SHA256 signature of the payload body.
+
+Example registration:
+
+```bash
+curl -X POST https://your-backend.railway.app/webhooks/register \
+  -H "X-API-Key: your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://your-server.com/webhook"}'
+```
+
+---
+
+# Rate Limiting
+
+| Endpoint | Limit |
+|------|------|
+| `/verify` | 20 req/min |
+| `/device/register` | 5 req/min |
+| `/company/register` | 3 req/min |
+| `/nonce` | 30 req/min |
+| `/stats` `/logs` `/devices` | 10 req/min |
+
+---
+
+# Running Locally
+
+Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-**Start the server**
+Run API:
+
 ```bash
 python -m uvicorn api:app --reload
 ```
 
-**Run the full test suite**
+Run SDK simulation:
+
 ```bash
 python test_sdk_simulation.py
 ```
 
-**Open the API docs**
+Docs available at:
+
 ```
 http://127.0.0.1:8000/docs
 ```
 
-**Open the dashboard**
-```
-http://127.0.0.1:8000/dashboard?api_key=YOUR_API_KEY
-```
-
 ---
 
-## Rate limiting
-
-| Endpoint | Limit |
-|----------|-------|
-| `/verify` | 20 requests/minute |
-| `/device/register` | 5 requests/minute |
-| `/company/register` | 3 requests/minute |
-| `/stats`, `/logs`, `/devices`, `/dashboard` | 10 requests/minute |
-
----
-
-## Project structure
+# Project Structure
 
 ```
 veilyx/
-├── api.py                              # FastAPI backend — all endpoints, auth, rate limiting
-├── verification_engine.py              # Age, name, document check logic
-├── Proof_generator.py                  # Builds the proof object returned to companies
-├── mock_digilocker.py                  # 12 test users with DOB and document data
-├── test_sdk_simulation.py              # Full end to end cryptographic simulation test
+├── api.py
+├── test_sdk_simulation.py
 ├── requirements.txt
-├── veilyx-react-native/                # React Native SDK package
-│   ├── src/index.ts                    # Public API surface
-│   ├── android/.../VeilyxModule.kt     # Android KeyStore + Aadhaar XML parsing
-│   ├── ios/Veilyx.swift                # iOS Secure Enclave + Keychain persistence
-│   └── ios/Veilyx.m                    # Objective-C bridge
-└── veilyx-gaming-demo/                 # Integrator demo app
-    └── App.tsx                         # RummyKing Pro — full 4 step verification flow
+├── veilyx-react-native/
+│   ├── src/index.ts
+│   ├── android/.../VeilyxModule.kt
+│   ├── ios/Veilyx.swift
+│   └── ios/Veilyx.m
+└── veilyx-gaming-demo/
+    └── App.tsx
 ```
 
 ---
 
-## Test results
+# Security Audit
 
-```
-=== VEILYX SDK SIMULATION STARTED ===
-[SUCCESS] SDK Initialized for Device: <uuid>
-[SUCCESS] Company registered with API key: xxxxxxxx...
-[SUCCESS] Server registered device: {status: SUCCESS}
-[INFO] SDK generated signed Proof. Sending to Integrator backend.
-=== VEILYX VERIFICATION RESULT ===
-{ "valid": true, "message": "Cryptographic signature verified successfully." }
---- MALICIOUS ATTEMPT: Altering Payload without resigning ---
-{ "valid": false, "message": "CRITICAL: Signature verification failed." }
-```
-
-Tamper detection confirmed working — modified proofs are rejected every time.
+| ID | Issue | Severity | Status |
+|----|------|------|------|
+| C2 | XML tag case bug | Critical | Fixed |
+| C3 | Fake device registration | Critical | Fixed |
+| H1 | Proof timestamp freshness | High | Fixed |
+| H2 | Cross-company injection | High | Fixed |
+| H3 | Webhook SSRF | High | Fixed |
+| M1 | XXE injection | Medium | Fixed |
+| M2 | API key exposure in dashboard URL | Medium | Fixed |
+| M3 | iOS network timeout | Medium | Fixed |
+| L1 | Dead imports | Low | Fixed |
+| L2 | Deprecated FastAPI startup event | Low | Fixed |
+| C1 | Replay attack (nonce unused) | Critical | Pending |
+| H4 | Deep link hijacking | High | Pending |
+| H5 | Hardcoded localhost URLs | High | Pending |
+| H6 | DigiLocker credentials placeholder | High | Pending |
 
 ---
 
-## The philosophy
+# Roadmap
 
-India's DPDP Act exists because companies have been collecting data they don't need and storing it insecurely. Veilyx flips the model: verification without collection. Companies get compliance by default. Users keep their data.
+- Deploy backend to Railway
+- Replace localhost URLs with environment variables
+- Configure DigiLocker OAuth credentials
+- Implement mandatory nonce validation
+- Replace custom deep links with Universal Links / Android App Links
+- Implement UIDAI XML signature verification
+- Validate Play Integrity tokens
+- Validate Apple App Attest tokens
+- Add certificate pinning
 
-Built by Shashwat Khandelwal.
+---
 
+# Pricing
+
+**₹4 per successful verification**
+
+Usage-based billing.
+
+---
+
+# License
+
+MIT License
