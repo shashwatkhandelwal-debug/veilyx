@@ -33,7 +33,7 @@ DB_PATH = os.path.join(BASE_DIR, 'veilyx.db')
 
 DIGILOCKER_CLIENT_ID = "YOUR_CLIENT_ID_HERE"
 DIGILOCKER_CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
-DIGILOCKER_REDIRECT_URI = "http://127.0.0.1:8000/digilocker/callback"
+DIGILOCKER_REDIRECT_URI = os.getenv("DIGILOCKER_REDIRECT_URI", "http://127.0.0.1:8000/digilocker/callback")
 DIGILOCKER_AUTH_URL = "https://api.digitallocker.gov.in/public/oauth2/1/authorize"
 DIGILOCKER_TOKEN_URL = "https://api.digitallocker.gov.in/public/oauth2/1/token"
 DIGILOCKER_AADHAAR_URL = "https://api.digitallocker.gov.in/public/oauth2/1/xml/eaadhaar"
@@ -534,7 +534,7 @@ def get_company_by_api_key_query(api_key: str):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 @limiter.limit("10/minute")
-def get_dashboard(request: Request, api_key: str):
+def get_dashboard(request: Request, api_key: str = Header(..., alias="X-API-Key")):
     company = get_company_by_api_key_query(api_key)
     conn = sqlite3.connect(DB_PATH)
     try:
