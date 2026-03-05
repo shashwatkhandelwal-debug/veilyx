@@ -1,3 +1,4 @@
+from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
 from datetime import datetime, timezone
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
@@ -289,6 +290,12 @@ async def verify_proof(request: Request, verification_request: ProofVerification
         public_key_pem = row[0]
     finally:
         conn.close()
+
+    if verification_request.proof_payload.requested_by != company['company_name']:
+        raise HTTPException(
+            status_code=403,
+            detail="requested_by in proof must match your registered company name."
+        )
 
 
     try:
