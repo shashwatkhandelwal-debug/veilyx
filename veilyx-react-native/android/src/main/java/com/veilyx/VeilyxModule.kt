@@ -138,7 +138,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                         parser.setInput(StringReader(aadhaarXmlData))
                         var eventType = parser.eventType
                         while (eventType != XmlPullParser.END_DOCUMENT) {
-                            if (eventType == XmlPullParser.START_TAG && parser.name == "Poi") {
+                            if (eventType == XmlPullParser.START_TAG && parser.name == "POI") {
                                 val dob = parser.getAttributeValue(null, "dob")
                                 if (dob != null) {
                                     val formats = arrayOf(SimpleDateFormat("dd-MM-yyyy", Locale.US), SimpleDateFormat("yyyy-MM-dd", Locale.US))
