@@ -223,6 +223,10 @@ def register_device(request: Request, reg_request: DeviceRegistrationRequest):
     # In a real app, verify the 'attestation_payload' with Apple DeviceCheck / Google Play Integrity servers
     if not reg_request.attestation_payload:
         raise HTTPException(status_code=400, detail="Missing attestation payload")
+
+    DUMMY_TOKENS = {"dummy_valid_attestation", "dummy_android_play_integrity_token", "dummy_ios_devicecheck_token"}
+    if reg_request.attestation_payload in DUMMY_TOKENS or reg_request.attestation_payload.startswith("error_fetching_token"):
+        raise HTTPException(status_code=400, detail="Invalid attestation payload. Real device attestation required.")
         
     conn = sqlite3.connect(DB_PATH)
     try:

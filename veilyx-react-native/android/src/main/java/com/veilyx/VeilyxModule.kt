@@ -109,7 +109,8 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                 val integrityTokenResponse = Tasks.await(integrityManager.requestIntegrityToken(request))
                 playIntegrityToken = integrityTokenResponse.token()
             } catch (e: Exception) {
-                playIntegrityToken = "error_fetching_token: " + e.message
+                promise.reject("ATTESTATION_ERROR", "Play Integrity failed: " + e.message)
+                return
             }
             map.putString("attestationPayload", playIntegrityToken)
             

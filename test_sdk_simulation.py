@@ -34,7 +34,7 @@ print(f"[SUCCESS] Company registered with API key: {api_key[:8]}...")
 reg_response = client.post("/device/register", json={
     "device_id": device_id,
     "public_key_pem": public_key_pem,
-    "attestation_payload": "dummy_valid_attestation"
+    "attestation_payload": "real_or_test_token_" + str(uuid.uuid4())
 })
 print("[SUCCESS] Server registered device:", reg_response.json())
 
