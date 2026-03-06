@@ -17,7 +17,7 @@ import VeilyxSDK from 'veilyx-react-native';
 const VEILYX_API_KEY = process.env.VEILYX_API_KEY || 'YOUR_API_KEY_HERE';
 
 const IntegratorDemoApp = () => {
-    const BACKEND_URL = 'https://YOUR-RAILWAY-URL.railway.app';
+    const BACKEND_URL = 'https://web-production-fe8772.up.railway.app';
     const [isInitializing, setIsInitializing] = useState(false);
     const [deviceReg, setDeviceReg] = useState<any>(null);
     const [isVerifying, setIsVerifying] = useState(false);
