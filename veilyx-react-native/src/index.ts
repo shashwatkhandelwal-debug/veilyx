@@ -22,6 +22,7 @@ export type VerificationCheck = 'age_above_18' | 'name_match' | 'document_valid'
 export interface ProofRequest {
   companyName: string;
   checks: VerificationCheck[];
+  nonce: string;
   aadhaarXml?: string;
 }
 
@@ -31,6 +32,7 @@ export interface VeilyxProof {
   requested_by: string;
   attributes_verified: Record<string, boolean>;
   timestamp: string;
+  nonce: string;
 }
 
 export interface SignedProof {
@@ -43,7 +45,7 @@ const initialize = (): Promise<{ deviceId: string; publicKeyPem: string; attesta
 };
 
 const requestProof = (request: ProofRequest): Promise<SignedProof> => {
-  return Veilyx.requestProof(request.companyName, request.checks, request.aadhaarXml || "");
+  return Veilyx.requestProof(request.companyName, request.checks, request.nonce, request.aadhaarXml || "");
 };
 
 /**

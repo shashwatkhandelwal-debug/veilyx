@@ -10,6 +10,7 @@ RCT_EXTERN_METHOD(
 RCT_EXTERN_METHOD(
   requestProof:(NSString *)companyName
   withChecks:(NSArray *)checks
+  withNonce:(NSString *)nonce
   withAadhaar:(NSString *)aadhaarXmlData
   withResolver:(RCTPromiseResolveBlock)resolve
   withRejecter:(RCTPromiseRejectBlock)reject
