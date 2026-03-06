@@ -185,12 +185,35 @@ Operational flow:
 | Rate limiting | slowapi middleware | Active |
 | Webhook authentication | HMAC-SHA256 signatures | Active |
 | Zero document storage | Proof-only verification model | Active |
+| Hardcoded credentials removed | All secrets via environment variables | Active |
+| OAuth URL encoding | DigiLocker code/state percent-encoded | Active |
+| Deep link hijacking (veilyx://) | Universal Links migration | Planned |
 | UIDAI XML signature verification | UIDAI digital signature validation | Planned |
 | Play Integrity server-side validation | Real token verification | Planned |
-| Apple App Attest server-side validation | Real token verification | Planned |
+| Apple App Attest | Real device attestation | Planned |
 | Certificate pinning | SDK network calls | Planned |
 
 Security audit history and pending items: [SECURITY.md](SECURITY.md)
+
+---
+
+# Deployment
+
+Veilyx backend is deployed on [Railway](https://railway.app).
+
+### Environment Variables
+
+Set the following in your Railway project dashboard:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DIGILOCKER_CLIENT_ID` | No* | DigiLocker partner client ID |
+| `DIGILOCKER_CLIENT_SECRET` | No* | DigiLocker partner client secret |
+| `DIGILOCKER_REDIRECT_URI` | No* | OAuth callback URL, e.g. `https://your-app.railway.app/digilocker/callback` |
+
+*If unset, all `/digilocker/*` endpoints will be non-functional. All other endpoints work normally.
+
+Railway auto-deploys on every push to `main`. The `railway.toml` and `Procfile` in the project root handle build and start configuration automatically.
 
 ---
 
@@ -231,8 +254,8 @@ X-API-Key: your_api_key_here
 |--------|----------|-------------|
 | initialize() | Android, iOS | Generates hardware-backed key pair, returns deviceId and publicKeyPem |
 | requestProof(companyName, checks, nonce, aadhaarXml) | Android, iOS | Parses Aadhaar XML locally, returns signed proof |
-| pickAadhaarFile() | Android, iOS | Opens native file picker, returns Aadhaar XML string |
-| readAadhaarFile(filePath) | Android, iOS | Reads Aadhaar XML from file path |
+| pickAadhaarFile() | Android, iOS | Opens native file picker, returns file URI |
+| readAadhaarFile(fileUri) | Android, iOS | Reads Aadhaar XML content from file URI |
 | handleDigiLockerCallback(code, state) | Android, iOS | Exchanges DigiLocker OAuth code for Aadhaar XML |
 | handleDeepLink(url) | Android, iOS | Parses deep link URL, returns code and state |
 
@@ -262,6 +285,7 @@ X-API-Key: your_api_key_here
 | iOS SDK | Swift / CryptoKit / Secure Enclave / iOS Keychain |
 | React Native bridge | Objective-C / veilyx-react-native |
 | Demo app | React Native / App.tsx |
+| Deployment | Railway / Nixpacks |
 
 ---
 
@@ -272,6 +296,8 @@ veilyx/
 ├── api.py
 ├── test_sdk_simulation.py
 ├── requirements.txt
+├── Procfile
+├── railway.toml
 ├── SECURITY.md
 ├── veilyx-react-native/
 │   ├── src/index.ts
@@ -334,24 +360,31 @@ http://127.0.0.1:8000/docs
 # Roadmap
 
 ### Infrastructure
-- [ ] Deploy backend to Railway
-- [ ] Replace all 5 hardcoded localhost URLs with environment variable
+- [x] Deploy backend to Railway
+- [x] Replace all hardcoded localhost URLs with environment variables
+- [x] Railway deployment config (Procfile + railway.toml)
 - [ ] Migrate api.py from SQLite to PostgreSQL via psycopg2
 - [ ] Connect to Railway Postgres via DATABASE_URL environment variable
 
 ### Integrations
 - [ ] Apply for DigiLocker partner account at partners.digitallocker.gov.in
-- [ ] Move DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET to environment variables
-- [ ] Set DIGILOCKER_REDIRECT_URI as Railway environment variable
+- [x] Move DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET to environment variables
+- [x] Set DIGILOCKER_REDIRECT_URI as Railway environment variable
 - [ ] Test full DigiLocker OAuth flow end to end
 
 ### Security Hardening
+- [x] Fix webhook HMAC signature (hmac.HMAC)
+- [x] Fix Android file URI vs XML content bug
+- [x] Fix iOS backend URL localhost fallback
+- [x] Fix OAuth URL encoding for DigiLocker callback
+- [x] Fix Kotlin date parse break logic
 - [ ] Replace veilyx:// custom scheme with Universal Links and Android App Links
 - [ ] Configure Apple App Site Association file
 - [ ] Configure Android App Links in AndroidManifest.xml
 - [ ] Implement UIDAI XML signature verification on Android and iOS
 - [ ] Implement Play Integrity token validation server-side
 - [ ] Implement Apple App Attest token validation server-side
+- [ ] Replace iOS regex XML parsing with XMLParser
 - [ ] Certificate pinning in SDK network calls
 - [ ] Penetration testing
 
@@ -359,7 +392,7 @@ http://127.0.0.1:8000/docs
 
 # Pricing
 
-4 INR per successful verification.
+₹4 per successful verification.
 
 Multiple attributes verified in a single proof count as **one verification**.
 
