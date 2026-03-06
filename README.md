@@ -1,37 +1,15 @@
 # Veilyx
-### Verification infrastructure for India  
+### Verification infrastructure for India
 **Proofs, not documents**
 
-₹4 per successful verification. Zero document storage. Designed to reduce DPDP data exposure.
+A privacy-preserving verification layer for Indian applications.
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-green)
-![License](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/status-pilot--ready-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 <img width="1890" height="961" alt="Veilyx Dashboard" src="https://github.com/user-attachments/assets/5c732d80-f453-4390-af04-2dd69775eafd" />
-
----
-
-## Veilyx vs Traditional KYC
-
-| Feature | IDfy / HyperVerge | Veilyx |
-|--------|-------------------|--------|
-| Data stored | Full identity documents | None |
-| Verification time | 3–30 seconds | Sub-second |
-| Cost | ₹15–₹25 | ₹4 |
-| Compliance exposure | Document storage obligations | No document storage |
-
-Compliance exposure explanation:
-
-Veilyx stores **no identity documents**.  
-Only the following metadata is retained:
-
-- device identifiers  
-- verification timestamps  
-- verification result flags  
-
-This reduces DPDP obligations related to storing sensitive identity documents.
 
 ---
 
@@ -39,32 +17,30 @@ This reduces DPDP obligations related to storing sensitive identity documents.
 
 Most applications must verify user attributes such as:
 
-- Age  
-- State of residence  
-- Identity validity  
+- Age
+- State of residence
+- Identity validity
 
 Traditional KYC requires collecting identity documents such as Aadhaar or PAN.
 
-This introduces several risks:
+This introduces:
 
-- onboarding friction  
-- large databases of sensitive documents  
-- breach liability  
-- DPDP compliance overhead  
+- Large databases of sensitive documents
+- Breach liability
+- DPDP compliance overhead
+- Onboarding friction
 
 ---
 
-# Veilyx Approach
-
-Veilyx replaces document uploads with **cryptographic proofs**.
+# How It Works
 
 Verification happens **entirely on the user's device**.
 
 Applications receive only:
 
-- verification result  
-- device identifier  
-- cryptographic signature  
+- Verification result
+- Device identifier
+- Cryptographic signature
 
 Example payload received by an application server:
 
@@ -77,36 +53,6 @@ Example payload received by an application server:
 ```
 
 No identity documents are transmitted or stored.
-
----
-
-# Integration Overview
-
-Typical integration time: **less than one day**
-
-1. Register company and obtain API key  
-2. Install SDK  
-3. Request verification proof  
-4. Validate proof via Veilyx API  
-
-### Example
-
-```javascript
-const { nonce } = await fetch("https://api.veilyx.io/nonce").then(r => r.json());
-
-const proof = await Veilyx.requestProof({
-  checks: ["age_above_18"],
-  nonce: nonce
-});
-
-await fetch("https://api.veilyx.io/verify", {
-  method: "POST",
-  headers: {
-    "X-API-Key": process.env.VEILYX_API_KEY
-  },
-  body: JSON.stringify(proof)
-});
-```
 
 ---
 
@@ -138,24 +84,80 @@ The backend verifies **cryptographic signatures**, not identity documents.
 
 ---
 
+# Integration Overview
+
+1. Register company and obtain API key
+2. Install SDK
+3. Fetch nonce from GET /nonce
+4. Request verification proof
+5. Validate proof via POST /verify
+
+```typescript
+const { nonce } = await fetch(`${BACKEND_URL}/nonce`, {
+    headers: { 'X-API-Key': API_KEY }
+}).then(r => r.json());
+
+const proof = await Veilyx.requestProof({
+    companyName: 'YourCompany',
+    checks: ['age_above_18'],
+    nonce: nonce,
+    aadhaarXml: aadhaarXml
+});
+
+await fetch(`${BACKEND_URL}/verify`, {
+    method: 'POST',
+    headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(proof)
+});
+```
+
+### Android
+
+```kotlin
+val nonce = fetchNonce()
+
+val proof = veilyx.requestProof(
+    companyName = "YourCompany",
+    checks = listOf("age_above_18"),
+    nonce = nonce,
+    aadhaarXml = xmlString
+)
+```
+
+### iOS
+
+```swift
+let nonce = await fetchNonce()
+
+let proof = try await veilyx.requestProof(
+    companyName: "YourCompany",
+    checks: ["age_above_18"],
+    nonce: nonce,
+    aadhaarXml: xmlString
+)
+```
+
+---
+
 # Portable Verification Credentials (PVCs)
 
-Veilyx supports **portable verification credentials** for reusable identity proofs.
+After a successful verification, the Veilyx backend issues a signed credential that can be reused across services without repeating full verification.
 
-This allows a verification result to be reused across multiple services without repeating full verification.
+PVCs are signed by the Veilyx backend rather than the device, allowing validation by multiple services using the Veilyx public key.
+
+> The `device_id` is included for audit and abuse detection but does not prevent credential reuse across services.
 
 Operational flow:
 
-1. User verifies attribute once using the Veilyx SDK
-2. A signed credential is generated by the Veilyx backend
-3. The user presents this credential to other services/apps
-4. Services verify the credential cryptographically using the Veilyx system public key
-
-Example credential format:
+1. User verifies attribute using the Veilyx SDK
+2. Backend validates proof
+3. Backend issues a signed credential
+4. User presents credential to other services
+5. Services verify the credential signature using the Veilyx public key
 
 ```json
 {
-  "credential_type": "age_verification",
+  "credential_type": "identity_verification",
   "attributes_verified": {
     "age_above_18": true
   },
@@ -170,129 +172,50 @@ Example credential format:
 
 # Security Architecture
 
-## Implemented Controls
-
 | Control | Implementation | Status |
-|-------|---------------|--------|
+|---------|---------------|--------|
 | Hardware-backed keys | AndroidKeyStore / iOS Secure Enclave | Active |
 | Proof signatures | RSA-2048 / ECDSA verification | Active |
 | Replay protection | Mandatory single-use nonce | Active |
-| Portable Credentials | RSA system-level signing | Active |
+| Timestamp freshness | 300 second proof expiry | Active |
+| Cross-company injection | requested_by validated against API key | Active |
+| SSRF protection | Internal IP/hostname blocklist on webhooks | Active |
+| XXE protection | Explicit OWASP flags on XmlPullParser | Active |
+| Portable credentials | RSA system-level signing | Active |
 | Rate limiting | slowapi middleware | Active |
 | Webhook authentication | HMAC-SHA256 signatures | Active |
 | Zero document storage | Proof-only verification model | Active |
-| UIDAI XML authenticity | UIDAI digital signature verification | In Progress |
+| UIDAI XML signature verification | UIDAI digital signature validation | Planned |
+| Play Integrity server-side validation | Real token verification | Planned |
+| Apple App Attest server-side validation | Real token verification | Planned |
+| Certificate pinning | SDK network calls | Planned |
 
----
-
-## DigiLocker Integration
-
-When DigiLocker is used:
-
-1. XML is fetched via OAuth
-2. UIDAI signature verification is performed
-3. XML is parsed to extract required attributes
-4. XML is deleted immediately after parsing
-
-Only verification results and metadata are retained.
-
-Audit logs store:
-
-- verification timestamp
-- verification result
-- device identifier
-
-Document contents are **never logged or stored**.
-
----
-
-# Operational Resilience
-
-| Scenario | Mitigation |
-|--------|-----------|
-| DigiLocker API unavailable | fallback to manual XML upload |
-| Nonce rate limits reached | client retry with exponential backoff |
-| Database failure | encrypted daily backups |
-| Signature verification failure | proof rejected without billing |
-
----
-
-# Use Cases
-
-## Dating Applications
-
-Verify users are over 18 without requiring ID uploads.
-
-Benefits:
-
-- verified profiles  
-- reduced fake accounts  
-- privacy preservation  
-
----
-
-## Real Money Gaming
-
-Gaming platforms must verify:
-
-- players are over 18  
-- players are not from restricted states  
-
-Example proof:
-
-```json
-{
-  "age_above_18": true,
-  "state_allowed": true
-}
-```
-
----
-
-## Marketplaces
-
-Enable verified seller badges without storing identity documents.
-
----
-
-## Fintech Platforms
-
-Reduce onboarding friction for wallet activation and identity verification flows.
-
----
-
-## Gig Platforms
-
-Verify delivery partners instantly during onboarding.
-
----
-
-# Technology Stack
-
-| Layer | Technology |
-|------|------------|
-| Backend API | Python 3.10+, FastAPI |
-| Database | PostgreSQL (production), SQLite (development) |
-| Cryptography | Python cryptography library |
-| Android SDK | Kotlin, AndroidKeyStore |
-| iOS SDK | Swift, CryptoKit, Secure Enclave |
-| React Native | TypeScript bridge |
+Security audit history and pending items: [SECURITY.md](SECURITY.md)
 
 ---
 
 # API Endpoints
 
-| Method | Endpoint | Description |
-|------|---------|-------------|
-| POST | `/company/register` | Register company |
-| POST | `/device/register` | Register device public key |
-| GET | `/nonce` | Generate replay-protection nonce |
-| POST | `/verify` | Verify signed proof |
-| POST | `/credential/issue` | Issue portable signed credential |
-| POST | `/webhooks/register` | Register webhook |
-| GET | `/stats` | Verification analytics |
-| GET | `/logs` | Verification logs |
-| GET | `/docs` | Swagger documentation |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | / | None | Health check |
+| POST | /company/register | None | Register company, receive API key |
+| POST | /device/register | None | Register device public key |
+| GET | /nonce | API Key | Get single-use nonce for replay protection |
+| POST | /verify | API Key | Verify a signed proof |
+| POST | /credential/issue | API Key | Issue a portable verification credential |
+| GET | /stats | API Key | Verification analytics and billing |
+| GET | /logs | API Key | Last 50 verification logs |
+| GET | /devices | API Key | All registered devices for this company |
+| GET | /dashboard | API Key (X-API-Key header) | Live verification dashboard |
+| POST | /webhooks/register | API Key | Register a webhook endpoint |
+| GET | /webhooks | API Key | List registered webhooks |
+| DELETE | /nonce/cleanup | API Key | Delete expired nonces |
+| GET | /digilocker/auth | None | Initiate DigiLocker OAuth flow |
+| GET | /digilocker/callback | None | DigiLocker OAuth callback |
+| GET | /digilocker/status | None | Check DigiLocker configuration |
+| DELETE | /digilocker/cleanup | API Key | Clean up used OAuth states |
+| GET | /docs | None | Swagger UI |
 
 Authentication header:
 
@@ -302,89 +225,81 @@ X-API-Key: your_api_key_here
 
 ---
 
-# Pricing
+# SDK Methods
 
-₹4 per **successful proof verification**.
-
-Multiple attributes verified in a single proof count as **one verification**.
-
-Failed proofs (tampered signatures, invalid payloads) are **not billed**.
+| Method | Platform | Description |
+|--------|----------|-------------|
+| initialize() | Android, iOS | Generates hardware-backed key pair, returns deviceId and publicKeyPem |
+| requestProof(companyName, checks, nonce, aadhaarXml) | Android, iOS | Parses Aadhaar XML locally, returns signed proof |
+| pickAadhaarFile() | Android, iOS | Opens native file picker, returns Aadhaar XML string |
+| readAadhaarFile(filePath) | Android, iOS | Reads Aadhaar XML from file path |
+| handleDigiLockerCallback(code, state) | Android, iOS | Exchanges DigiLocker OAuth code for Aadhaar XML |
+| handleDeepLink(url) | Android, iOS | Parses deep link URL, returns code and state |
 
 ---
 
-# SDK Example
+# Rate Limiting
 
-### Android
+| Endpoint | Limit |
+|----------|-------|
+| /verify | 20 requests/minute |
+| /device/register | 5 requests/minute |
+| /company/register | 3 requests/minute |
+| /nonce | 30 requests/minute |
+| /credential/issue | 5 requests/minute |
+| /stats, /logs, /devices, /dashboard, /webhooks | 10 requests/minute |
 
-```kotlin
-val veilyx = Veilyx.initialize(apiKey = "your_key")
+---
 
-val nonce = fetchNonce()
+# Tech Stack
 
-val proof = veilyx.requestProof(
-    checks = listOf("age_above_18"),
-    aadhaarXml = xmlString,
-    nonce = nonce
-)
+| Layer | Technology |
+|-------|------------|
+| Backend API | Python 3.10+ / FastAPI / slowapi |
+| Database | SQLite (dev) / PostgreSQL (production) |
+| Cryptography | Python cryptography library — RSA-2048 + P256 ECDSA |
+| Android SDK | Kotlin / AndroidKeyStore / XmlPullParser / Play Integrity API |
+| iOS SDK | Swift / CryptoKit / Secure Enclave / iOS Keychain |
+| React Native bridge | Objective-C / veilyx-react-native |
+| Demo app | React Native / App.tsx |
+
+---
+
+# Project Structure
+
 ```
-
-### iOS
-
-```swift
-let veilyx = try await Veilyx.initialize(apiKey: "your_key")
-
-let nonce = await fetchNonce()
-
-let proof = try await veilyx.requestProof(
-    checks: ["age_above_18"],
-    aadhaarXml: xmlString,
-    nonce: nonce
-)
-```
-
-### React Native
-
-```typescript
-const { deviceId } = await Veilyx.initialize("your_key");
-
-const { nonce } = await fetch("https://api.veilyx.io/nonce").then(r => r.json());
-
-const proof = await Veilyx.requestProof({
-  checks: ["age_above_18"],
-  aadhaarXml: xmlString,
-  nonce
-});
+veilyx/
+├── api.py
+├── test_sdk_simulation.py
+├── requirements.txt
+├── SECURITY.md
+├── veilyx-react-native/
+│   ├── src/index.ts
+│   ├── android/.../VeilyxModule.kt
+│   ├── android/.../VeilyxConfig.kt
+│   ├── ios/Veilyx.swift
+│   └── ios/Veilyx.m
+└── veilyx-gaming-demo/
+    └── App.tsx
 ```
 
 ---
 
 # Local Development
 
-### Prerequisites
-
-- Python 3.10+
-- PostgreSQL
-- Node.js 18+
-- Android Studio or Xcode
-
-### Setup
+Install dependencies:
 
 ```bash
-git clone https://github.com/shashwatkhandelwal-debug/veilyx.git
-cd veilyx
-
 pip install -r requirements.txt
-
-cp .env.example .env
 ```
 
-Run API:
+Start the server:
 
 ```bash
 python -m uvicorn api:app --reload
 ```
 
-Run SDK simulation:
+Run the test suite:
 
 ```bash
 python test_sdk_simulation.py
@@ -398,17 +313,57 @@ http://127.0.0.1:8000/docs
 
 ---
 
-# Production Hardening Roadmap
+# Test Results
 
-- Replace localhost endpoints  
-- Configure PostgreSQL and Redis  
-- Apply for DigiLocker partner integration  
-- Implement Play Integrity verification  
-- Implement Apple App Attest validation  
-- Configure Universal Links and Android App Links  
-- Enable certificate pinning  
-- Complete penetration testing  
-- Prepare SOC2 compliance roadmap  
+```
+=== VEILYX SDK SIMULATION STARTED ===
+[SDK] Keypair generated for Device: <uuid>
+[API] Registered TestCorp_764e96 (API Key: HOmOnK1x...)
+[API] Device registered
+--- TEST: Standard Verification Flow ---
+[API] Fetched nonce: ZKLYEf1cyiJuiiaiOT...
+[API] Verification Result: True
+--- TEST: Replay Attack (Same Nonce) ---
+[API] Blocked Replay? True (Status: 400)
+--- TEST: Portable Verification Credential (PVC) ---
+[API] PVC Issued Successfully
+```
+
+---
+
+# Roadmap
+
+### Infrastructure
+- [ ] Deploy backend to Railway
+- [ ] Replace all 5 hardcoded localhost URLs with environment variable
+- [ ] Migrate api.py from SQLite to PostgreSQL via psycopg2
+- [ ] Connect to Railway Postgres via DATABASE_URL environment variable
+
+### Integrations
+- [ ] Apply for DigiLocker partner account at partners.digitallocker.gov.in
+- [ ] Move DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET to environment variables
+- [ ] Set DIGILOCKER_REDIRECT_URI as Railway environment variable
+- [ ] Test full DigiLocker OAuth flow end to end
+
+### Security Hardening
+- [ ] Replace veilyx:// custom scheme with Universal Links and Android App Links
+- [ ] Configure Apple App Site Association file
+- [ ] Configure Android App Links in AndroidManifest.xml
+- [ ] Implement UIDAI XML signature verification on Android and iOS
+- [ ] Implement Play Integrity token validation server-side
+- [ ] Implement Apple App Attest token validation server-side
+- [ ] Certificate pinning in SDK network calls
+- [ ] Penetration testing
+
+---
+
+# Pricing
+
+4 INR per successful verification.
+
+Multiple attributes verified in a single proof count as **one verification**.
+
+Failed proofs are **not billed**.
 
 ---
 
@@ -416,4 +371,3 @@ http://127.0.0.1:8000/docs
 
 MIT License.
 
-Core verification engine is open source. Hosted infrastructure and dashboard services may be commercially licensed.
