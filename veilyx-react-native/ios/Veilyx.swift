@@ -95,8 +95,8 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
         }
     }
     
-    @objc(requestProof:withChecks:withAadhaar:withResolver:withRejecter:)
-    func requestProof(companyName: String, checks: [String], aadhaarXmlData: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    @objc(requestProof:withChecks:withNonce:withAadhaar:withResolver:withRejecter:)
+    func requestProof(companyName: String, checks: [String], nonce: String, aadhaarXmlData: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         do {
             guard !deviceId.isEmpty else {
                 reject("NOT_INITIALIZED", "SDK not initialized. Call initialize() first.", nil)
@@ -169,7 +169,8 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
                 "device_id": deviceId,
                 "requested_by": companyName,
                 "attributes_verified": verifiedAttributes,
-                "timestamp": timestamp
+                "timestamp": timestamp,
+                "nonce": nonce
             ]
             
             // Serialize to JSON, sort keys for deterministic signing

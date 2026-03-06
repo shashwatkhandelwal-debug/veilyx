@@ -120,7 +120,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
     }
 
     @ReactMethod
-    fun requestProof(companyName: String, checks: ReadableArray, aadhaarXmlData: String, promise: Promise) {
+    fun requestProof(companyName: String, checks: ReadableArray, nonce: String, aadhaarXmlData: String, promise: Promise) {
         if (deviceId.isEmpty()) {
             promise.reject("NOT_INITIALIZED", "SDK not initialized. Call initialize() first.")
             return
@@ -181,6 +181,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
             proofPayload.put("requested_by", companyName)
             proofPayload.put("attributes_verified", verifiedAttributes)
             proofPayload.put("timestamp", timestamp)
+            proofPayload.put("nonce", nonce)
 
             // Construct deterministic JSON (keys sorted)
 
@@ -229,6 +230,7 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                 attrMap.putBoolean(check, verifiedAttributes.optBoolean(check, false))
             }
             payloadMap.putMap("attributes_verified", attrMap)
+            payloadMap.putString("nonce", proofPayload.getString("nonce"))
             
             result.putMap("proof_payload", payloadMap)
             result.putString("signature", signatureBase64)

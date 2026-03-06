@@ -143,7 +143,7 @@ class ProofPayload(BaseModel):
     requested_by: str = Field(..., min_length=1)
     attributes_verified: dict
     timestamp: str = Field(..., min_length=10)
-    nonce: str = Field(default="", description="Server-issued nonce for replay protection")
+    nonce: str = Field(..., description="Server-issued nonce for replay protection")
 
 class ProofVerificationRequest(BaseModel):
     proof_payload: ProofPayload
@@ -159,6 +159,28 @@ class CompanyRegistrationRequest(BaseModel):
 
 class WebhookRegistrationRequest(BaseModel):
     url: str = Field(..., min_length=10)
+
+class PortableCredential(BaseModel):
+    credential_type: str
+    attributes_verified: dict
+    issuer: str = "veilyx"
+    device_id: str
+    timestamp: str
+    signature: str
+
+# System signing key for PVCs (In production, load from environment/vault)
+_pvc_key_file = os.path.join(BASE_DIR, 'pvc_system.pem')
+if os.path.exists(_pvc_key_file):
+    with open(_pvc_key_file, "rb") as f:
+        VEILYX_PRIVATE_KEY = serialization.load_pem_private_key(f.read(), password=None)
+else:
+    VEILYX_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    with open(_pvc_key_file, "wb") as f:
+        f.write(VEILYX_PRIVATE_KEY.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
 
 @app.post("/company/register")
 @limiter.limit("3/minute")
@@ -302,6 +324,9 @@ async def fire_webhook(company_name: str, verification_id: str, device_id: str, 
 @app.post("/verify", response_model=ProofVerificationResponse)
 @limiter.limit("20/minute")
 async def verify_proof(request: Request, verification_request: ProofVerificationRequest, company: dict = Depends(verify_api_key)):
+    return await _verify_proof_internal(verification_request, company)
+
+async def _verify_proof_internal(verification_request: ProofVerificationRequest, company: dict):
     device_id = verification_request.proof_payload.device_id
     
     conn = sqlite3.connect(DB_PATH)
@@ -337,20 +362,20 @@ async def verify_proof(request: Request, verification_request: ProofVerification
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid proof timestamp format.")
 
-    if verification_request.proof_payload.nonce:
-        conn = sqlite3.connect(DB_PATH)
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT used_at FROM used_nonces WHERE nonce = ?', (verification_request.proof_payload.nonce,))
-            row = cursor.fetchone()
-            if not row:
-                raise HTTPException(status_code=400, detail="Invalid nonce. Request a fresh nonce from GET /nonce.")
-            if time.time() - row[0] > 300:
-                raise HTTPException(status_code=400, detail="Nonce expired. Request a fresh nonce from GET /nonce.")
-            cursor.execute('DELETE FROM used_nonces WHERE nonce = ?', (verification_request.proof_payload.nonce,))
-            conn.commit()
-        finally:
-            conn.close()
+    # Mandatory Nonce Validation
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT used_at FROM used_nonces WHERE nonce = ?', (verification_request.proof_payload.nonce,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="Invalid nonce. Request a fresh nonce from GET /nonce.")
+        if time.time() - row[0] > 300:
+            raise HTTPException(status_code=400, detail="Nonce expired. Request a fresh nonce from GET /nonce.")
+        cursor.execute('DELETE FROM used_nonces WHERE nonce = ?', (verification_request.proof_payload.nonce,))
+        conn.commit()
+    finally:
+        conn.close()
     
     try:
         public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
@@ -435,6 +460,44 @@ async def verify_proof(request: Request, verification_request: ProofVerification
     )
 
     return response_data
+
+@app.post("/credential/issue", response_model=PortableCredential)
+@limiter.limit("5/minute")
+async def issue_credential(request: Request, verification_request: ProofVerificationRequest, company: dict = Depends(verify_api_key)):
+    # 1. First verify the proof using the internal function
+    result = await _verify_proof_internal(verification_request, company)
+    if not result.get("valid"):
+        raise HTTPException(status_code=400, detail="Cannot issue credential for invalid proof")
+    
+    # 2. Construct the PVC
+    payload = verification_request.proof_payload
+    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    pvc_data = {
+        "credential_type": "identity_verification",
+        "attributes_verified": payload.attributes_verified,
+        "issuer": "veilyx",
+        "device_id": payload.device_id,
+        "timestamp": timestamp
+    }
+    
+    # Deterministic serialization for signing
+    pvc_json = json.dumps(pvc_data, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    
+    # 3. Sign with Veilyx system key
+    signature = VEILYX_PRIVATE_KEY.sign(
+        pvc_json,
+        padding.PKCS1v15(),
+        hashes.SHA256()
+    )
+    
+    return PortableCredential(
+        credential_type=pvc_data["credential_type"],
+        attributes_verified=pvc_data["attributes_verified"],
+        device_id=pvc_data["device_id"],
+        timestamp=pvc_data["timestamp"],
+        signature=base64.b64encode(signature).decode('utf-8')
+    )
 
 @app.get("/stats")
 @limiter.limit("10/minute")

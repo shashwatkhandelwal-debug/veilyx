@@ -9,79 +9,86 @@ from api import app
 
 client = TestClient(app)
 
-print("=== VEILYX SDK SIMULATION STARTED ===")
+def run_simulation():
+    print("=== VEILYX SDK SIMULATION STARTED ===")
 
-# 1. SDK generates a keypair locally (secure enclave simulation)
-private_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-)
-public_key = private_key.public_key()
-public_key_pem = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo
-).decode('utf-8')
+    # 1. Setup Identity
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode('utf-8')
+    device_id = str(uuid.uuid4())
+    print(f"[SDK] Keypair generated for Device: {device_id}")
 
-device_id = str(uuid.uuid4())
-print(f"[SUCCESS] SDK Initialized for Device: {device_id}")
+    # 2. Register Company and Device
+    unique_name = f"TestCorp_{uuid.uuid4().hex[:6]}"
+    comp_resp = client.post("/company/register", json={"company_name": unique_name})
+    api_key = comp_resp.json()["api_key"]
+    print(f"[API] Registered {unique_name} (API Key: {api_key[:8]}...)")
 
-unique_suffix = uuid.uuid4().hex[:6]
-company_response = client.post("/company/register", json={"company_name": f"QuickLoan Fintech {unique_suffix}"})
-api_key = company_response.json()["api_key"]
-print(f"[SUCCESS] Company registered with API key: {api_key[:8]}...")
+    client.post("/device/register", json={
+        "device_id": device_id,
+        "public_key_pem": public_key_pem,
+        "attestation_payload": "real_attestation_" + uuid.uuid4().hex
+    })
+    print(f"[API] Device registered")
 
-# 2. SDK Registers Device over network
-reg_response = client.post("/device/register", json={
-    "device_id": device_id,
-    "public_key_pem": public_key_pem,
-    "attestation_payload": "real_or_test_token_" + str(uuid.uuid4())
-})
-print("[SUCCESS] Server registered device:", reg_response.json())
+    # 3. Standard Verification Flow
+    print("\n--- TEST: Standard Verification Flow ---")
+    headers = {"X-API-Key": api_key}
+    nonce = client.get("/nonce", headers=headers).json()["nonce"]
+    print(f"[API] Fetched nonce: {nonce}")
 
-# 3. App asks SDK for proof
-print("\n--- Integrator app asks for age check ---")
+    proof_payload = {
+        "verification_id": str(uuid.uuid4()),
+        "device_id": device_id,
+        "requested_by": unique_name,
+        "attributes_verified": {"age_above_18": True},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "nonce": nonce
+    }
+    payload_json = json.dumps(proof_payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    sig = private_key.sign(payload_json, padding.PKCS1v15(), hashes.SHA256())
+    
+    verify_resp = client.post("/verify", headers=headers, json={
+        "proof_payload": proof_payload,
+        "signature": base64.b64encode(sig).decode('utf-8')
+    })
+    print(f"[API] Verification Result: {verify_resp.json().get('valid')}")
 
-# 4. SDK does verification locally
-proof_payload = {
-    "verification_id": str(uuid.uuid4()),
-    "device_id": device_id,
-    "requested_by": f"QuickLoan Fintech {unique_suffix}",
-    "attributes_verified": {"age_above_18": True},
-    "timestamp": datetime.now(timezone.utc).isoformat()
-}
+    # 4. Replay Attack Test (Same Nonce)
+    print("\n--- TEST: Replay Attack (Same Nonce) ---")
+    replay_resp = client.post("/verify", headers=headers, json={
+        "proof_payload": proof_payload,
+        "signature": base64.b64encode(sig).decode('utf-8')
+    })
+    print(f"[API] Blocked Replay? {replay_resp.status_code == 400} (Status: {replay_resp.status_code})")
 
-# 5. SDK signs the payload
-payload_json = json.dumps(proof_payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
-signature = private_key.sign(
-    payload_json,
-    padding.PKCS1v15(),
-    hashes.SHA256()
-)
-signature_b64 = base64.b64encode(signature).decode('utf-8')
+    # 5. PVC Issuance Test
+    print("\n--- TEST: Portable Verification Credential (PVC) ---")
+    nonce2 = client.get("/nonce", headers=headers).json()["nonce"]
+    pvc_payload = {
+        "verification_id": str(uuid.uuid4()),
+        "device_id": device_id,
+        "requested_by": unique_name,
+        "attributes_verified": {"age_above_18": True},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "nonce": nonce2
+    }
+    pvc_payload_json = json.dumps(pvc_payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    pvc_sig = private_key.sign(pvc_payload_json, padding.PKCS1v15(), hashes.SHA256())
+    
+    pvc_resp = client.post("/credential/issue", headers=headers, json={
+        "proof_payload": pvc_payload,
+        "signature": base64.b64encode(pvc_sig).decode('utf-8')
+    })
+    
+    if pvc_resp.status_code == 200:
+        print(f"[API] PVC Issued Successfully")
+        print(json.dumps(pvc_resp.json(), indent=2))
+    else:
+        print(f"[ERROR] PVC Issuance failed: {pvc_resp.text}")
 
-request_data = {
-    "proof_payload": proof_payload,
-    "signature": signature_b64
-}
-
-print(f"[INFO] SDK generated signed Proof. Sending to Integrator backend.\n")
-
-# 6. Integrator Backend submits proof to Veilyx Backend
-headers = {"X-API-Key": api_key}
-verify_response = client.post("/verify", json=request_data, headers=headers)
-
-print("=== VEILYX VERIFICATION RESULT ===")
-print(json.dumps(verify_response.json(), indent=2))
-
-# 7. Malicious testing: Edit the payload
-proof_payload["attributes_verified"] = {"age_above_18": False} # Emulate a hacked proof
-hacked_payload_json = json.dumps(proof_payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
-# Reuse older signature
-hacked_request_data = {
-    "proof_payload": proof_payload,
-    "signature": signature_b64
-}
-
-print("\n--- MALICIOUS ATTEMPT: Altering Payload without resigning ---")
-verify_response_hacked = client.post("/verify", json=hacked_request_data, headers=headers)
-print(json.dumps(verify_response_hacked.json(), indent=2))
+if __name__ == "__main__":
+    run_simulation()

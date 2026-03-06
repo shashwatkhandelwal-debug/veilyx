@@ -17,102 +17,54 @@ import VeilyxSDK from 'veilyx-react-native';
 const VEILYX_API_KEY = process.env.VEILYX_API_KEY || 'YOUR_API_KEY_HERE';
 
 const IntegratorDemoApp = () => {
+    const BACKEND_URL = 'https://YOUR-RAILWAY-URL.railway.app';
     const [isInitializing, setIsInitializing] = useState(false);
     const [deviceReg, setDeviceReg] = useState<any>(null);
-
     const [isVerifying, setIsVerifying] = useState(false);
     const [proofResult, setProofResult] = useState<any>(null);
     const [backendVerification, setBackendVerification] = useState<any>(null);
     const [isDigiLockerLoading, setIsDigiLockerLoading] = useState(false);
 
-    const handleOpenUIDAI = () => {
-        Linking.openURL('https://myaadhaar.uidai.gov.in/offline-ekyc');
+    const fetchNonce = async (): Promise<string> => {
+        const response = await fetch(`${BACKEND_URL}/nonce`, {
+            headers: { 'X-API-Key': VEILYX_API_KEY }
+        });
+        if (!response.ok) throw new Error("Failed to fetch security nonce");
+        const { nonce } = await response.json();
+        return nonce;
     };
 
-    const handleDigiLockerVerify = async () => {
-        if (!deviceReg) {
-            Alert.alert('Error', 'Please initialize the SDK first');
-            return;
-        }
-        try {
-            setIsDigiLockerLoading(true);
-            const response = await fetch('http://10.0.2.2:8000/digilocker/auth');
-            const data = await response.json();
-            await Linking.openURL(data.auth_url);
-        } catch (e: any) {
-            Alert.alert('DigiLocker Error', e.message);
-        } finally {
-            setIsDigiLockerLoading(false);
-        }
-    };
-
-    // 1. Initialize SDK & Register Device
-    const handleSimulateAppStart = async () => {
-        try {
-            setIsInitializing(true);
-            console.log('Initializing Veilyx SDK...');
-
-            const initResult = await VeilyxSDK.initialize();
-            setDeviceReg(initResult);
-
-            console.log('Device Keys Generated Locally:', initResult.deviceId);
-
-            // Normally, here the Integrator App would send `initResult` to the backend to register the public key
-            // We will simulate that this succeeded.
-            Alert.alert("Success", "SDK Initialized & Device Registered securely.");
-
-        } catch (e: any) {
-            console.error(e);
-            Alert.alert("Init Error", e.message);
-        } finally {
-            setIsInitializing(false);
-        }
-    };
-
-    // 2. Request Proof 
-    const handlePlayGame = async () => {
-        if (!deviceReg) {
-            Alert.alert("Error", "Please initialize the SDK first");
-            return;
-        }
-
-        try {
-            setIsVerifying(true);
-
-            // Pick the Aadhaar Offline XML file from device
-            let aadhaarXml: string;
-            try {
-                aadhaarXml = await VeilyxSDK.pickAadhaarFile();
-            } catch (pickError: any) {
-                Alert.alert('Verification cancelled', 'Verification cancelled — Aadhaar file required.');
-                setIsVerifying(false);
-                return;
+    useEffect(() => {
+        const handleDeepLinkCallback = async (event: { url: string }) => {
+            if (event.url.startsWith('veilyx://digilocker/callback')) {
+                try {
+                    const parsed = await VeilyxSDK.handleDeepLink(event.url);
+                    const aadhaarXml = await VeilyxSDK.handleDigiLockerCallback(parsed.code, parsed.state);
+                    const nonce = await fetchNonce();
+                    const proof = await VeilyxSDK.requestProof({
+                        companyName: 'RummyKing Pro',
+                        checks: ['age_above_18'],
+                        nonce: nonce,
+                        aadhaarXml: aadhaarXml
+                    });
+                    setProofResult(proof);
+                    await simulateBackendVerification(proof);
+                } catch (e: any) {
+                    Alert.alert('DigiLocker Callback Error', e.message);
+                }
             }
+        };
 
-            // The gaming app asks the local SDK for an age proof
-            const proof = await VeilyxSDK.requestProof({
-                companyName: 'RummyKing Pro',
-                checks: ['age_above_18'],
-                aadhaarXml: aadhaarXml
-            });
+        const subscription = Linking.addEventListener('url', handleDeepLinkCallback);
+        return () => subscription.remove();
+    }, []);
 
-            setProofResult(proof);
-
-            // Simulate sending the Proof to the Python Backend for cryptographic verification
-            simulateBackendVerification(proof);
-
-        } catch (e: any) {
-            console.error(e);
-            Alert.alert("Verification Error", e.message);
-        } finally {
-            setIsVerifying(false);
-        }
-    };
 
     const simulateBackendVerification = async (proof: any) => {
         try {
-            // In reality, this is a fetch() to the Integrator's backend, which calls Veilyx Python API
-            const response = await fetch('http://10.0.2.2:8000/verify', {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const response = await fetch(`${BACKEND_URL}/verify`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -121,8 +73,10 @@ const IntegratorDemoApp = () => {
                 body: JSON.stringify({
                     proof_payload: proof.proof_payload,
                     signature: proof.signature
-                })
+                }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 throw new Error(`Backend verification failed with status ${response.status}`);
@@ -148,6 +102,83 @@ const IntegratorDemoApp = () => {
         } catch (e: any) {
             console.error("Backend Error:", e);
             Alert.alert("Backend Offline", "Could not connect to verification server. " + e.message);
+        }
+    };
+
+
+
+    const handleOpenUIDAI = () => {
+        Linking.openURL('https://myaadhaar.uidai.gov.in/offline-ekyc');
+    };
+
+    const handleDigiLockerVerify = async () => {
+        if (!deviceReg) {
+            Alert.alert('Error', 'Please initialize the SDK first');
+            return;
+        }
+        try {
+            setIsDigiLockerLoading(true);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const response = await fetch(`${BACKEND_URL}/digilocker/auth`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            await Linking.openURL(data.auth_url);
+        } catch (e: any) {
+            Alert.alert('DigiLocker Error', e.message);
+        } finally {
+            setIsDigiLockerLoading(false);
+        }
+    };
+
+    const handleSimulateAppStart = async () => {
+        try {
+            setIsInitializing(true);
+            const initResult = await VeilyxSDK.initialize();
+            setDeviceReg(initResult);
+            Alert.alert("Success", "SDK Initialized & Device Registered securely.");
+        } catch (e: any) {
+            console.error(e);
+            Alert.alert("Init Error", e.message);
+        } finally {
+            setIsInitializing(false);
+        }
+    };
+
+    const handlePlayGame = async () => {
+        if (!deviceReg) {
+            Alert.alert("Error", "Please initialize the SDK first");
+            return;
+        }
+
+        try {
+            setIsVerifying(true);
+
+            let aadhaarXml: string;
+            try {
+                aadhaarXml = await VeilyxSDK.pickAadhaarFile();
+            } catch (pickError: any) {
+                Alert.alert('Verification cancelled', 'Verification cancelled — Aadhaar file required.');
+                setIsVerifying(false);
+                return;
+            }
+
+            const nonce = await fetchNonce();
+            const proof = await VeilyxSDK.requestProof({
+                companyName: 'RummyKing Pro',
+                checks: ['age_above_18'],
+                nonce: nonce,
+                aadhaarXml: aadhaarXml
+            });
+
+            setProofResult(proof);
+            await simulateBackendVerification(proof);
+
+        } catch (e: any) {
+            console.error(e);
+            Alert.alert("Verification Error", e.message);
+        } finally {
+            setIsVerifying(false);
         }
     };
 
