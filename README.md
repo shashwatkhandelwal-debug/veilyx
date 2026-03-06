@@ -2,6 +2,8 @@
 ### Verification infrastructure for India
 **Proofs, not documents**
 
+A privacy-preserving verification layer for Indian applications.
+
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-green)
 ![Status](https://img.shields.io/badge/status-pilot--ready-orange)
@@ -12,8 +14,6 @@
 ---
 
 # Problem
-
----
 
 Most applications must verify user attributes such as:
 
@@ -33,8 +33,6 @@ This introduces:
 ---
 
 # How It Works
-
----
 
 Verification happens **entirely on the user's device**.
 
@@ -59,8 +57,6 @@ No identity documents are transmitted or stored.
 ---
 
 # Architecture Flow
-
----
 
 Sensitive identity data never leaves the user device.
 
@@ -90,8 +86,6 @@ The backend verifies **cryptographic signatures**, not identity documents.
 
 # Integration Overview
 
----
-
 1. Register company and obtain API key
 2. Install SDK
 3. Fetch nonce from GET /nonce
@@ -117,15 +111,41 @@ await fetch(`${BACKEND_URL}/verify`, {
 });
 ```
 
+### Android
+
+```kotlin
+val nonce = fetchNonce()
+
+val proof = veilyx.requestProof(
+    companyName = "YourCompany",
+    checks = listOf("age_above_18"),
+    nonce = nonce,
+    aadhaarXml = xmlString
+)
+```
+
+### iOS
+
+```swift
+let nonce = await fetchNonce()
+
+let proof = try await veilyx.requestProof(
+    companyName: "YourCompany",
+    checks: ["age_above_18"],
+    nonce: nonce,
+    aadhaarXml: xmlString
+)
+```
+
 ---
 
 # Portable Verification Credentials (PVCs)
 
----
-
 After a successful verification, the Veilyx backend issues a signed credential that can be reused across services without repeating full verification.
 
 PVCs are signed by the Veilyx backend rather than the device, allowing validation by multiple services using the Veilyx public key.
+
+> The `device_id` is included for audit and abuse detection but does not prevent credential reuse across services.
 
 Operational flow:
 
@@ -152,8 +172,6 @@ Operational flow:
 
 # Security Architecture
 
----
-
 | Control | Implementation | Status |
 |---------|---------------|--------|
 | Hardware-backed keys | AndroidKeyStore / iOS Secure Enclave | Active |
@@ -172,34 +190,11 @@ Operational flow:
 | Apple App Attest server-side validation | Real token verification | Planned |
 | Certificate pinning | SDK network calls | Planned |
 
----
-
-# Security Audit
-
----
-
-| ID | Vulnerability | Severity | Status |
-|----|--------------|----------|--------|
-| C1 | Replay attack — nonce system exists but SDK never calls GET /nonce | Critical | Fixed |
-| C2 | XML tag case bug — Poi vs POI — age always false on real Aadhaar | Critical | Fixed |
-| C3 | Dummy attestation tokens accepted — fake device registration possible | Critical | Fixed |
-| H1 | No proof timestamp freshness check — stale proofs accepted indefinitely | High | Fixed |
-| H2 | Cross-company injection — requested_by not validated against API key | High | Fixed |
-| H3 | SSRF via webhook — internal IPs and localhost accepted | High | Fixed |
-| M1 | XXE injection — explicit OWASP parser flags missing on XmlPullParser | Medium | Fixed |
-| M2 | API key exposed in URL on /dashboard — logged in server access logs | Medium | Fixed |
-| M3 | No timeout on iOS URLSession in handleDigiLockerCallback | Medium | Fixed |
-| L1 | Unused imports and dead variables in Kotlin and Python | Low | Fixed |
-| L2 | Deprecated @app.on_event startup in FastAPI | Low | Fixed |
-| H4 | veilyx:// deep link hijacking — any app can intercept DigiLocker auth code | High | Pending |
-| H5 | 5x hardcoded localhost URLs — broken in production | High | Pending |
-| H6 | DigiLocker credentials hardcoded as placeholder strings in source | High | Pending |
+Security audit history and pending items: [SECURITY.md](SECURITY.md)
 
 ---
 
 # API Endpoints
-
----
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
@@ -232,8 +227,6 @@ X-API-Key: your_api_key_here
 
 # SDK Methods
 
----
-
 | Method | Platform | Description |
 |--------|----------|-------------|
 | initialize() | Android, iOS | Generates hardware-backed key pair, returns deviceId and publicKeyPem |
@@ -243,52 +236,9 @@ X-API-Key: your_api_key_here
 | handleDigiLockerCallback(code, state) | Android, iOS | Exchanges DigiLocker OAuth code for Aadhaar XML |
 | handleDeepLink(url) | Android, iOS | Parses deep link URL, returns code and state |
 
-### Android
-
-```kotlin
-val nonce = fetchNonce()
-
-val proof = veilyx.requestProof(
-    companyName = "YourCompany",
-    checks = listOf("age_above_18"),
-    nonce = nonce,
-    aadhaarXml = xmlString
-)
-```
-
-### iOS
-
-```swift
-let nonce = await fetchNonce()
-
-let proof = try await veilyx.requestProof(
-    companyName: "YourCompany",
-    checks: ["age_above_18"],
-    nonce: nonce,
-    aadhaarXml: xmlString
-)
-```
-
-### React Native
-
-```typescript
-const { nonce } = await fetch(`${BACKEND_URL}/nonce`, {
-    headers: { 'X-API-Key': API_KEY }
-}).then(r => r.json());
-
-const proof = await Veilyx.requestProof({
-    companyName: 'YourCompany',
-    checks: ['age_above_18'],
-    nonce: nonce,
-    aadhaarXml: aadhaarXml
-});
-```
-
 ---
 
 # Rate Limiting
-
----
 
 | Endpoint | Limit |
 |----------|-------|
@@ -302,8 +252,6 @@ const proof = await Veilyx.requestProof({
 ---
 
 # Tech Stack
-
----
 
 | Layer | Technology |
 |-------|------------|
@@ -319,13 +267,12 @@ const proof = await Veilyx.requestProof({
 
 # Project Structure
 
----
-
 ```
 veilyx/
 ├── api.py
 ├── test_sdk_simulation.py
 ├── requirements.txt
+├── SECURITY.md
 ├── veilyx-react-native/
 │   ├── src/index.ts
 │   ├── android/.../VeilyxModule.kt
@@ -339,8 +286,6 @@ veilyx/
 ---
 
 # Local Development
-
----
 
 Install dependencies:
 
@@ -370,8 +315,6 @@ http://127.0.0.1:8000/docs
 
 # Test Results
 
----
-
 ```
 === VEILYX SDK SIMULATION STARTED ===
 [SDK] Keypair generated for Device: <uuid>
@@ -390,19 +333,22 @@ http://127.0.0.1:8000/docs
 
 # Roadmap
 
----
-
+### Infrastructure
 - [ ] Deploy backend to Railway
 - [ ] Replace all 5 hardcoded localhost URLs with environment variable
-- [ ] Set DIGILOCKER_REDIRECT_URI as Railway environment variable
+- [ ] Migrate api.py from SQLite to PostgreSQL via psycopg2
+- [ ] Connect to Railway Postgres via DATABASE_URL environment variable
+
+### Integrations
 - [ ] Apply for DigiLocker partner account at partners.digitallocker.gov.in
 - [ ] Move DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET to environment variables
+- [ ] Set DIGILOCKER_REDIRECT_URI as Railway environment variable
 - [ ] Test full DigiLocker OAuth flow end to end
+
+### Security Hardening
 - [ ] Replace veilyx:// custom scheme with Universal Links and Android App Links
 - [ ] Configure Apple App Site Association file
 - [ ] Configure Android App Links in AndroidManifest.xml
-- [ ] Migrate api.py from SQLite to PostgreSQL via psycopg2
-- [ ] Connect to Railway Postgres via DATABASE_URL environment variable
 - [ ] Implement UIDAI XML signature verification on Android and iOS
 - [ ] Implement Play Integrity token validation server-side
 - [ ] Implement Apple App Attest token validation server-side
@@ -413,9 +359,7 @@ http://127.0.0.1:8000/docs
 
 # Pricing
 
----
-
-4 INR per successful verification. Billed per API call.
+4 INR per successful verification.
 
 Multiple attributes verified in a single proof count as **one verification**.
 
@@ -424,8 +368,6 @@ Failed proofs are **not billed**.
 ---
 
 # License
-
----
 
 MIT License.
 
