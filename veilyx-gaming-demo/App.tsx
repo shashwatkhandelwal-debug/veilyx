@@ -156,7 +156,8 @@ const IntegratorDemoApp = () => {
 
             let aadhaarXml: string;
             try {
-                aadhaarXml = await VeilyxSDK.pickAadhaarFile();
+                const fileUri = await VeilyxSDK.pickAadhaarFile();
+                aadhaarXml = await VeilyxSDK.readAadhaarFile(fileUri);
             } catch (pickError: any) {
                 Alert.alert('Verification cancelled', 'Verification cancelled — Aadhaar file required.');
                 setIsVerifying(false);

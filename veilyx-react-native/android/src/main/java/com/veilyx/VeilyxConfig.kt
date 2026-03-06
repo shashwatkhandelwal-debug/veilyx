@@ -1,4 +1,4 @@
 package com.veilyx
 object VeilyxConfig {
-    const val BACKEND_URL = "https://YOUR-RAILWAY-URL.railway.app"
+    val BACKEND_URL: String = BuildConfig.VEILYX_BACKEND_URL
 }

@@ -154,8 +154,8 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                                                 if (dobDate.before(cal.time) || dobDate.equals(cal.time)) {
                                                     verified = true
                                                 }
+                                                break
                                             }
-                                            break
                                         } catch (e: Exception) {}
                                     }
                                 }
@@ -301,7 +301,9 @@ class VeilyxModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
         Thread {
             try {
                 val backendUrl = com.veilyx.VeilyxConfig.BACKEND_URL
-                val url = java.net.URL("$backendUrl/digilocker/callback?code=$code&state=$state")
+                val encodedCode = java.net.URLEncoder.encode(code, "UTF-8")
+                val encodedState = java.net.URLEncoder.encode(state, "UTF-8")
+                val url = java.net.URL("$backendUrl/digilocker/callback?code=$encodedCode&state=$encodedState")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 30000

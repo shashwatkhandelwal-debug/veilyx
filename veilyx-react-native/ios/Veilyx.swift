@@ -288,8 +288,13 @@ class Veilyx: NSObject, UIDocumentPickerDelegate {
     
     @objc(handleDigiLockerCallback:withState:withResolver:withRejecter:)
     func handleDigiLockerCallback(code: String, state: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-        let backendUrl = Bundle.main.object(forInfoDictionaryKey: "VEILYX_BACKEND_URL") as? String ?? "http://127.0.0.1:8000"
-        let urlString = "\(backendUrl)/digilocker/callback?code=\(code)&state=\(state)"
+        guard let backendUrl = Bundle.main.object(forInfoDictionaryKey: "VEILYX_BACKEND_URL") as? String else {
+            reject("CONFIG_ERROR", "VEILYX_BACKEND_URL is not set in Info.plist", nil)
+            return
+        }
+        let encodedCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
+        let encodedState = state.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? state
+        let urlString = "\(backendUrl)/digilocker/callback?code=\(encodedCode)&state=\(encodedState)"
         
         guard let url = URL(string: urlString) else {
             reject("CALLBACK_ERROR", "Invalid callback URL", nil)

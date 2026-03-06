@@ -27,6 +27,9 @@ import hashlib
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    if not DIGILOCKER_CLIENT_ID or not DIGILOCKER_CLIENT_SECRET:
+        import warnings
+        warnings.warn("DigiLocker credentials not set. /digilocker/* endpoints will be non-functional.")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -37,9 +40,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'veilyx.db')
 
-DIGILOCKER_CLIENT_ID = "YOUR_CLIENT_ID_HERE"
-DIGILOCKER_CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
-DIGILOCKER_REDIRECT_URI = os.getenv("DIGILOCKER_REDIRECT_URI", "http://127.0.0.1:8000/digilocker/callback")
+DIGILOCKER_CLIENT_ID = os.getenv("DIGILOCKER_CLIENT_ID")
+DIGILOCKER_CLIENT_SECRET = os.getenv("DIGILOCKER_CLIENT_SECRET")
+DIGILOCKER_REDIRECT_URI = os.getenv("DIGILOCKER_REDIRECT_URI", "")
 DIGILOCKER_AUTH_URL = "https://api.digitallocker.gov.in/public/oauth2/1/authorize"
 DIGILOCKER_TOKEN_URL = "https://api.digitallocker.gov.in/public/oauth2/1/token"
 DIGILOCKER_AADHAAR_URL = "https://api.digitallocker.gov.in/public/oauth2/1/xml/eaadhaar"
@@ -312,7 +315,7 @@ async def fire_webhook(company_name: str, verification_id: str, device_id: str, 
     
     async with httpx.AsyncClient(timeout=10.0) as client:
         for url, secret in endpoints:
-            signature = hmac.new(secret.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+            signature = hmac.HMAC(key=secret.encode(), msg=payload_json.encode(), digestmod=hashlib.sha256).hexdigest()
             try:
                 await client.post(url, content=payload_json, headers={
                     'Content-Type': 'application/json',
@@ -726,6 +729,8 @@ def get_dashboard(request: Request, api_key: str = Header(..., alias="X-API-Key"
 @app.get("/digilocker/auth")
 @limiter.limit("10/minute")
 def digilocker_auth(request: Request):
+    if not DIGILOCKER_REDIRECT_URI:
+        raise HTTPException(status_code=500, detail="DIGILOCKER_REDIRECT_URI is not configured.")
     state = secrets.token_urlsafe(16)
     
     conn = sqlite3.connect(DB_PATH)
@@ -826,11 +831,11 @@ def digilocker_cleanup(company: dict = Depends(verify_api_key)):
 
 @app.get("/digilocker/status")
 def digilocker_status():
-    if DIGILOCKER_CLIENT_ID != "YOUR_CLIENT_ID_HERE":
+    if DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET:
         return {"configured": True}
     return {
         "configured": False,
-        "message": "DigiLocker credentials not configured. Replace YOUR_CLIENT_ID_HERE and YOUR_CLIENT_SECRET_HERE with real credentials from https://partners.digitallocker.gov.in"
+        "message": "DigiLocker credentials not configured. Please set DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET environment variables."
     }
 
 
