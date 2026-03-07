@@ -392,7 +392,7 @@ http://127.0.0.1:8000/docs
 
 # Pricing
 
-₹4 per successful verification.
+₹10 per successful verification.
 
 Multiple attributes verified in a single proof count as **one verification**.
 
