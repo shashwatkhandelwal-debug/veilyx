@@ -360,24 +360,14 @@ http://127.0.0.1:8000/docs
 # Roadmap
 
 ### Infrastructure
-- [x] Deploy backend to Railway
-- [x] Replace all hardcoded localhost URLs with environment variables
-- [x] Railway deployment config (Procfile + railway.toml)
 - [ ] Migrate api.py from SQLite to PostgreSQL via psycopg2
 - [ ] Connect to Railway Postgres via DATABASE_URL environment variable
 
 ### Integrations
 - [ ] Apply for DigiLocker partner account at partners.digitallocker.gov.in
-- [x] Move DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET to environment variables
-- [x] Set DIGILOCKER_REDIRECT_URI as Railway environment variable
 - [ ] Test full DigiLocker OAuth flow end to end
 
 ### Security Hardening
-- [x] Fix webhook HMAC signature (hmac.HMAC)
-- [x] Fix Android file URI vs XML content bug
-- [x] Fix iOS backend URL localhost fallback
-- [x] Fix OAuth URL encoding for DigiLocker callback
-- [x] Fix Kotlin date parse break logic
 - [ ] Replace veilyx:// custom scheme with Universal Links and Android App Links
 - [ ] Configure Apple App Site Association file
 - [ ] Configure Android App Links in AndroidManifest.xml
