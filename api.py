@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 import httpx
 import html
 import urllib.parse
@@ -846,3 +846,7 @@ def home():
         "description": "API to securely verify localized cryptographic proofs.",
         "status": "running"
     }
+
+@app.get('/docs-page', include_in_schema=False)
+async def docs_page():
+    return FileResponse('docs_page.html')

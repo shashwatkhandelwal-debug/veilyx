@@ -209,7 +209,7 @@ Set the following in your Railway project dashboard:
 |----------|----------|-------------|
 | `DIGILOCKER_CLIENT_ID` | No* | DigiLocker partner client ID |
 | `DIGILOCKER_CLIENT_SECRET` | No* | DigiLocker partner client secret |
-| `DIGILOCKER_REDIRECT_URI` | No* | OAuth callback URL, e.g. `https://your-app.railway.app/digilocker/callback` |
+| `DIGILOCKER_REDIRECT_URI` | No* | OAuth callback URL, e.g. `https://web-production-fe8772.up.railway.app/digilocker/callback` |
 
 *If unset, all `/digilocker/*` endpoints will be non-functional. All other endpoints work normally.
 
